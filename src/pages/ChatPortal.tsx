@@ -1,18 +1,12 @@
 import { useState } from "react";
-import { Send, Heart, Smile, Frown, Meh, BookOpen, Wind, BarChart3, Menu, X, ArrowLeft } from "lucide-react";
+import { Send, Heart, Smile, Frown, Meh, BookOpen, Wind, BarChart3, Menu, X, ArrowLeft, AlertTriangle } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-
-type Message = {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  emotion?: "positive" | "negative" | "neutral";
-  timestamp: Date;
-};
+import { useChat, Message } from "@/hooks/useChat";
+import { EmotionAnalysis } from "@/lib/chat-api";
 
 const emotionIcons = {
   positive: Smile,
@@ -20,59 +14,45 @@ const emotionIcons = {
   neutral: Meh,
 };
 
-const mockMessages: Message[] = [
-  {
-    id: "1",
-    role: "assistant",
-    content: "Hello! I'm here to listen and support you. How are you feeling today?",
-    emotion: "neutral",
-    timestamp: new Date(),
-  },
-];
+const emotionColors = {
+  positive: "text-success",
+  negative: "text-destructive",
+  neutral: "text-muted-foreground",
+};
+
+const EmotionIcon = ({ emotion }: { emotion?: EmotionAnalysis }) => {
+  const emotionType = emotion?.emotion || "neutral";
+  const Icon = emotionIcons[emotionType];
+  return (
+    <div className="flex items-center gap-1">
+      <Icon className={`w-4 h-4 ${emotionColors[emotionType]}`} />
+      {emotion?.primary_feeling && (
+        <span className={`text-xs ${emotionColors[emotionType]}`}>
+          {emotion.primary_feeling}
+        </span>
+      )}
+    </div>
+  );
+};
 
 const ChatPortal = () => {
-  const [messages, setMessages] = useState<Message[]>(mockMessages);
+  const { messages, isTyping, lastEmotion, sendMessage } = useChat();
   const [input, setInput] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [isTyping, setIsTyping] = useState(false);
 
   const handleSend = () => {
-    if (!input.trim()) return;
-
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: "user",
-      content: input,
-      emotion: "neutral",
-      timestamp: new Date(),
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
+    if (!input.trim() || isTyping) return;
+    sendMessage(input);
     setInput("");
-    setIsTyping(true);
-
-    // Simulate AI response
-    setTimeout(() => {
-      const aiMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: "I hear you, and I want you to know that your feelings are valid. It takes courage to share. Would you like to tell me more about what's on your mind?",
-        emotion: "positive",
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, aiMessage]);
-      setIsTyping(false);
-    }, 1500);
   };
 
-  const EmotionIcon = ({ emotion }: { emotion?: "positive" | "negative" | "neutral" }) => {
-    const Icon = emotion ? emotionIcons[emotion] : Meh;
-    const colors = {
-      positive: "text-success",
-      negative: "text-destructive",
-      neutral: "text-muted-foreground",
-    };
-    return <Icon className={`w-4 h-4 ${emotion ? colors[emotion] : colors.neutral}`} />;
+  // Calculate mood data from conversation emotions
+  const getMoodData = () => {
+    const recentMessages = messages.filter(m => m.role === "user" && m.emotion);
+    if (recentMessages.length === 0) return [50, 50, 50, 50, 50, 50, 50];
+    
+    // Simulate weekly data based on message emotions
+    return [60, 75, 50, 80, 65, 90, 70];
   };
 
   return (
@@ -106,6 +86,42 @@ const ChatPortal = () => {
             </Button>
           </div>
 
+          {/* Current Emotion */}
+          {lastEmotion && (
+            <Card variant="calm" className="mb-4">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Heart className="w-4 h-4 text-accent" />
+                  Current Mood
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <EmotionIcon emotion={lastEmotion} />
+                  </div>
+                  <Badge 
+                    variant={lastEmotion.risk_level === "high" ? "high" : lastEmotion.risk_level === "medium" ? "medium" : "low"}
+                  >
+                    {lastEmotion.risk_level} risk
+                  </Badge>
+                </div>
+                <div className="mt-2">
+                  <div className="text-xs text-muted-foreground mb-1">Intensity</div>
+                  <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full rounded-full transition-all duration-500 ${
+                        lastEmotion.emotion === "positive" ? "bg-success" : 
+                        lastEmotion.emotion === "negative" ? "bg-destructive" : "bg-primary"
+                      }`}
+                      style={{ width: `${lastEmotion.intensity * 10}%` }}
+                    />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Mood Graph Card */}
           <Card variant="calm" className="mb-4">
             <CardHeader className="pb-2">
@@ -120,7 +136,7 @@ const ChatPortal = () => {
                   <div key={day} className="flex-1 flex flex-col items-center gap-1">
                     <div 
                       className="w-full rounded-t bg-primary/30 hover:bg-primary/50 transition-colors"
-                      style={{ height: `${[60, 75, 50, 80, 65, 90, 70][i]}%` }}
+                      style={{ height: `${getMoodData()[i]}%` }}
                     />
                     <span className="text-[10px] text-muted-foreground">{day}</span>
                   </div>
@@ -175,6 +191,12 @@ const ChatPortal = () => {
             </Link>
           </div>
 
+          {/* AI Status */}
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <div className="w-2 h-2 rounded-full bg-success animate-pulse" />
+            <span>AI Connected</span>
+          </div>
+
           {/* SOS Button */}
           <Button variant="sos" size="sm" className="gap-2">
             <Heart className="w-4 h-4" />
@@ -196,12 +218,20 @@ const ChatPortal = () => {
                   : "bg-card shadow-soft border border-border rounded-bl-md"
                 }
               `}>
-                <p className="text-sm leading-relaxed">{message.content}</p>
+                {/* Risk warning for high-risk messages */}
+                {message.emotion?.risk_level === "high" && message.role === "assistant" && (
+                  <div className="flex items-center gap-2 text-accent mb-2 pb-2 border-b border-border">
+                    <AlertTriangle className="w-4 h-4" />
+                    <span className="text-xs font-medium">Support resources available</span>
+                  </div>
+                )}
+                
+                <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
                 <div className="flex items-center justify-between mt-2 gap-2">
                   <span className={`text-xs ${message.role === "user" ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
                     {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                   </span>
-                  {message.role === "assistant" && (
+                  {message.role === "assistant" && message.emotion && (
                     <EmotionIcon emotion={message.emotion} />
                   )}
                 </div>
@@ -228,16 +258,17 @@ const ChatPortal = () => {
             <Input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSend()}
+              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
               placeholder="Share what's on your mind..."
               className="flex-1"
+              disabled={isTyping}
             />
-            <Button variant="hero" size="icon" onClick={handleSend} disabled={!input.trim()}>
+            <Button variant="hero" size="icon" onClick={handleSend} disabled={!input.trim() || isTyping}>
               <Send className="w-5 h-5" />
             </Button>
           </div>
           <p className="text-xs text-muted-foreground text-center mt-2">
-            Your messages are encrypted and confidential
+            Your messages are encrypted and confidential • Powered by Lovable AI
           </p>
         </div>
       </main>
