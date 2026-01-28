@@ -29,6 +29,9 @@ const Header = () => {
 
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" asChild>
+            <Link to="/auth">Sign In</Link>
+          </Button>
+          <Button variant="ghost" size="sm" asChild className="hidden sm:flex">
             <Link to="/therapist">Therapist Login</Link>
           </Button>
           <Button variant="hero" size="sm" asChild>
