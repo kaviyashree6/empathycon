@@ -122,5 +122,6 @@ export function useChat() {
     isTyping,
     lastEmotion,
     sendMessage,
+    setMessages,
   };
 }
