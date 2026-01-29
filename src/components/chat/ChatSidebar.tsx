@@ -1,5 +1,5 @@
-import { Heart, BarChart3, BookOpen, Wind } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Heart, BarChart3, BookOpen, Wind, Phone } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -21,9 +21,11 @@ const emotionColors = {
 type ChatSidebarProps = {
   lastEmotion: EmotionAnalysis | null;
   onClose: () => void;
+  onStartVoiceCall?: () => void;
 };
 
-export function ChatSidebar({ lastEmotion, onClose }: ChatSidebarProps) {
+export function ChatSidebar({ lastEmotion, onClose, onStartVoiceCall }: ChatSidebarProps) {
+  const navigate = useNavigate();
   const EmotionIcon = lastEmotion
     ? emotionIcons[lastEmotion.emotion]
     : emotionIcons.neutral;
@@ -119,11 +121,17 @@ export function ChatSidebar({ lastEmotion, onClose }: ChatSidebarProps) {
 
       {/* Quick Actions */}
       <div className="space-y-2 mb-4">
-        <Button variant="calm" className="w-full justify-start gap-3">
+        {onStartVoiceCall && (
+          <Button variant="hero" className="w-full justify-start gap-3" onClick={onStartVoiceCall}>
+            <Phone className="w-4 h-4" />
+            Voice Call
+          </Button>
+        )}
+        <Button variant="calm" className="w-full justify-start gap-3" onClick={() => navigate("/journal")}>
           <BookOpen className="w-4 h-4" />
           My Journal
         </Button>
-        <Button variant="calm" className="w-full justify-start gap-3">
+        <Button variant="calm" className="w-full justify-start gap-3" onClick={() => navigate("/breathing")}>
           <Wind className="w-4 h-4" />
           Breathing Exercise
         </Button>

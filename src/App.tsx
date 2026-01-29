@@ -10,6 +10,8 @@ import ChatPortal from "./pages/ChatPortal";
 import TherapistLogin from "./pages/TherapistLogin";
 import TherapistDashboard from "./pages/TherapistDashboard";
 import NotFound from "./pages/NotFound";
+import { JournalPage } from "./components/journal/JournalPage";
+import { BreathingExercise } from "./components/breathing/BreathingExercise";
 
 const queryClient = new QueryClient();
 
@@ -24,6 +26,8 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/chat" element={<ChatPortal />} />
+            <Route path="/journal" element={<JournalPage />} />
+            <Route path="/breathing" element={<BreathingExercise />} />
             <Route path="/therapist" element={<TherapistLogin />} />
             <Route path="/therapist/dashboard" element={<TherapistDashboard />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

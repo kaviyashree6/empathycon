@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Send, Heart, Menu, ArrowLeft, LogIn, LogOut, User } from "lucide-react";
+import { Send, Heart, Menu, ArrowLeft, LogIn, LogOut, User, Phone } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,7 @@ import { useVoice } from "@/hooks/useVoice";
 import { useAuth } from "@/contexts/AuthContext";
 import { LanguageCode } from "@/lib/voice-api";
 import { VoiceControls } from "@/components/chat/VoiceControls";
+import { VoiceAgent } from "@/components/chat/VoiceAgent";
 import { LanguageSelector } from "@/components/chat/LanguageSelector";
 import { ChatHistory } from "@/components/chat/ChatHistory";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
@@ -21,12 +22,16 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 
+// Default ElevenLabs agent ID - users can configure their own
+const DEFAULT_AGENT_ID = "agent_01jdqv3wqvfhxqdfbfc0ch7thz";
+
 const ChatPortal = () => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
 
   const [input, setInput] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [voiceCallOpen, setVoiceCallOpen] = useState(false);
   const [language, setLanguage] = useState<LanguageCode>("en");
 
   const { messages, isTyping, lastEmotion, sendMessage, setMessages } = useChat();
@@ -161,8 +166,22 @@ const ChatPortal = () => {
         ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
       `}
       >
-        <ChatSidebar lastEmotion={lastEmotion} onClose={() => setSidebarOpen(false)} />
+        <ChatSidebar 
+          lastEmotion={lastEmotion} 
+          onClose={() => setSidebarOpen(false)} 
+          onStartVoiceCall={() => setVoiceCallOpen(true)}
+        />
       </aside>
+
+      {/* Voice Call Modal */}
+      {voiceCallOpen && (
+        <div className="fixed inset-0 bg-foreground/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <VoiceAgent 
+            agentId={DEFAULT_AGENT_ID} 
+            onClose={() => setVoiceCallOpen(false)} 
+          />
+        </div>
+      )}
 
       {/* Main Chat Area */}
       <main className="flex-1 flex flex-col min-w-0">
