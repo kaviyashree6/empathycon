@@ -1,4 +1,4 @@
-import { Heart, BarChart3, BookOpen, Wind, Phone } from "lucide-react";
+import { Heart, BarChart3, BookOpen, Wind, Phone, Settings } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -134,6 +134,10 @@ export function ChatSidebar({ lastEmotion, onClose, onStartVoiceCall }: ChatSide
         <Button variant="calm" className="w-full justify-start gap-3" onClick={() => navigate("/breathing")}>
           <Wind className="w-4 h-4" />
           Breathing Exercise
+        </Button>
+        <Button variant="ghost" className="w-full justify-start gap-3" onClick={() => navigate("/settings")}>
+          <Settings className="w-4 h-4" />
+          Settings
         </Button>
       </div>
 

@@ -22,7 +22,9 @@ export type StreamCallbacks = {
 export async function streamChat(
   message: string,
   conversationHistory: ChatMessage[],
-  callbacks: StreamCallbacks
+  callbacks: StreamCallbacks,
+  sessionId?: string,
+  userId?: string
 ) {
   const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
 
@@ -36,6 +38,8 @@ export async function streamChat(
       body: JSON.stringify({
         message,
         conversationHistory,
+        sessionId,
+        userId,
       }),
     });
 

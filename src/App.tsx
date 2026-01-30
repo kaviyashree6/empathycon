@@ -12,6 +12,7 @@ import TherapistDashboard from "./pages/TherapistDashboard";
 import NotFound from "./pages/NotFound";
 import { JournalPage } from "./components/journal/JournalPage";
 import { BreathingExercise } from "./components/breathing/BreathingExercise";
+import Settings from "./pages/Settings";
 
 const queryClient = new QueryClient();
 
@@ -28,6 +29,7 @@ const App = () => (
             <Route path="/chat" element={<ChatPortal />} />
             <Route path="/journal" element={<JournalPage />} />
             <Route path="/breathing" element={<BreathingExercise />} />
+            <Route path="/settings" element={<Settings />} />
             <Route path="/therapist" element={<TherapistLogin />} />
             <Route path="/therapist/dashboard" element={<TherapistDashboard />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

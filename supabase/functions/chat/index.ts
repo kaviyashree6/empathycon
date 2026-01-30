@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -28,6 +29,47 @@ Only return the JSON object, no other text.
 
 User message: `;
 
+// Generate pseudo user ID for privacy
+function generatePseudoUserId(sessionId: string): string {
+  const hash = sessionId.slice(0, 4).toUpperCase();
+  return `User_${hash}`;
+}
+
+// deno-lint-ignore no-explicit-any
+type SupabaseClientType = any;
+
+// Insert crisis alert to database
+async function insertCrisisAlert(
+  supabase: SupabaseClientType,
+  sessionId: string,
+  messageId: string | null,
+  userId: string | null,
+  riskLevel: string,
+  primaryFeeling: string,
+  messagePreview: string
+) {
+  try {
+    const { error } = await supabase.from("crisis_alerts").insert({
+      session_id: sessionId,
+      message_id: messageId,
+      user_id: userId,
+      pseudo_user_id: generatePseudoUserId(sessionId),
+      risk_level: riskLevel,
+      primary_feeling: primaryFeeling,
+      message_preview: messagePreview.slice(0, 200), // Limit preview length
+      status: "pending",
+    });
+
+    if (error) {
+      console.error("Failed to insert crisis alert:", error);
+    } else {
+      console.log("Crisis alert inserted for session:", sessionId);
+    }
+  } catch (e) {
+    console.error("Error inserting crisis alert:", e);
+  }
+}
+
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
@@ -35,15 +77,21 @@ serve(async (req) => {
   }
 
   try {
-    const { message, conversationHistory = [] } = await req.json();
+    const { message, conversationHistory = [], sessionId, userId } = await req.json();
     console.log("Received message:", message);
     console.log("Conversation history length:", conversationHistory.length);
+    console.log("Session ID:", sessionId);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
       console.error("LOVABLE_API_KEY not configured");
       throw new Error("LOVABLE_API_KEY is not configured");
     }
+
+    // Initialize Supabase client with service role for inserting alerts
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Step 1: Analyze emotion
     console.log("Analyzing emotion...");
@@ -95,6 +143,19 @@ serve(async (req) => {
       console.log("Parsed emotion analysis:", emotionAnalysis);
     } catch (e) {
       console.error("Failed to parse emotion analysis:", e);
+    }
+
+    // Insert crisis alert if risk level is high or medium
+    if (sessionId && (emotionAnalysis.risk_level === "high" || emotionAnalysis.risk_level === "medium")) {
+      await insertCrisisAlert(
+        supabase,
+        sessionId,
+        null,
+        userId || null,
+        emotionAnalysis.risk_level,
+        emotionAnalysis.primary_feeling,
+        message
+      );
     }
 
     // Step 2: Generate empathetic response with streaming
