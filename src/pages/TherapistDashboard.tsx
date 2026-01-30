@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { 
   Heart, 
   Users, 
@@ -12,7 +12,10 @@ import {
   BarChart3,
   TrendingUp,
   Activity,
-  LogOut
+  LogOut,
+  Bell,
+  Loader2,
+  RefreshCw
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,91 +29,100 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-
-type EscalationCase = {
-  id: string;
-  pseudoUserId: string;
-  riskLevel: "high" | "medium" | "low";
-  time: Date;
-  status: "pending" | "acknowledged" | "resolved";
-  lastMessage: string;
-};
-
-const mockCases: EscalationCase[] = [
-  {
-    id: "ESC-001",
-    pseudoUserId: "User_A7X2",
-    riskLevel: "high",
-    time: new Date(Date.now() - 1000 * 60 * 15),
-    status: "pending",
-    lastMessage: "I don't know if I can handle this anymore...",
-  },
-  {
-    id: "ESC-002",
-    pseudoUserId: "User_B3K9",
-    riskLevel: "medium",
-    time: new Date(Date.now() - 1000 * 60 * 45),
-    status: "acknowledged",
-    lastMessage: "Everything feels overwhelming at work.",
-  },
-  {
-    id: "ESC-003",
-    pseudoUserId: "User_C1M4",
-    riskLevel: "low",
-    time: new Date(Date.now() - 1000 * 60 * 120),
-    status: "pending",
-    lastMessage: "I've been feeling anxious about my exams.",
-  },
-  {
-    id: "ESC-004",
-    pseudoUserId: "User_D5P8",
-    riskLevel: "high",
-    time: new Date(Date.now() - 1000 * 60 * 5),
-    status: "pending",
-    lastMessage: "I feel so alone and hopeless.",
-  },
-];
-
-const stats = [
-  { label: "Active Sessions", value: "127", change: "+12%", icon: Users },
-  { label: "Pending Escalations", value: "4", change: "-3", icon: AlertTriangle },
-  { label: "Avg Response Time", value: "4.2m", change: "-18%", icon: Clock },
-  { label: "Resolved Today", value: "23", change: "+8", icon: CheckCircle },
-];
+import { useCrisisAlerts, CrisisAlert } from "@/hooks/useCrisisAlerts";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 const TherapistDashboard = () => {
-  const [cases, setCases] = useState<EscalationCase[]>(mockCases);
-  const [selectedCase, setSelectedCase] = useState<EscalationCase | null>(null);
-  const [riskFilter, setRiskFilter] = useState<"all" | "high" | "medium" | "low">("all");
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const { alerts, isLoading, stats, acknowledgeAlert, resolveAlert, refetch } = useCrisisAlerts();
+  const [selectedAlert, setSelectedAlert] = useState<CrisisAlert | null>(null);
+  const [riskFilter, setRiskFilter] = useState<"all" | "high" | "medium">("all");
+  const [isTherapist, setIsTherapist] = useState<boolean | null>(null);
 
-  const filteredCases = cases.filter(
-    (c) => riskFilter === "all" || c.riskLevel === riskFilter
+  // Check if user has therapist role
+  useEffect(() => {
+    const checkTherapistRole = async () => {
+      if (!user) {
+        setIsTherapist(false);
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", user.id)
+          .in("role", ["therapist", "admin"]);
+
+        if (error) throw error;
+
+        setIsTherapist(data && data.length > 0);
+      } catch (e) {
+        console.error("Error checking therapist role:", e);
+        setIsTherapist(false);
+      }
+    };
+
+    checkTherapistRole();
+  }, [user]);
+
+  const filteredAlerts = alerts.filter(
+    (a) => riskFilter === "all" || a.risk_level === riskFilter
   );
 
-  const handleAcknowledge = (caseId: string) => {
-    setCases((prev) =>
-      prev.map((c) =>
-        c.id === caseId ? { ...c, status: "acknowledged" as const } : c
-      )
-    );
-  };
-
-  const handleResolve = (caseId: string) => {
-    setCases((prev) =>
-      prev.map((c) =>
-        c.id === caseId ? { ...c, status: "resolved" as const } : c
-      )
-    );
-    setSelectedCase(null);
-  };
-
-  const formatTime = (date: Date) => {
+  const formatTime = (dateStr: string) => {
+    const date = new Date(dateStr);
     const diff = Date.now() - date.getTime();
     const minutes = Math.floor(diff / 60000);
     if (minutes < 60) return `${minutes}m ago`;
     const hours = Math.floor(minutes / 60);
-    return `${hours}h ago`;
+    if (hours < 24) return `${hours}h ago`;
+    return date.toLocaleDateString();
   };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    navigate("/");
+  };
+
+  // Show access denied for non-therapists
+  if (isTherapist === false) {
+    return (
+      <div className="min-h-screen gradient-calm flex items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardContent className="pt-6 text-center">
+            <AlertTriangle className="w-12 h-12 text-warning mx-auto mb-4" />
+            <h2 className="text-xl font-bold mb-2">Access Restricted</h2>
+            <p className="text-muted-foreground mb-4">
+              This dashboard is only available to verified therapists.
+            </p>
+            <Button asChild>
+              <Link to="/">Return Home</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Loading state
+  if (isTherapist === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  const dashboardStats = [
+    { label: "Pending Alerts", value: stats.pending.toString(), change: stats.highRisk > 0 ? `${stats.highRisk} high risk` : "All stable", icon: AlertTriangle },
+    { label: "High Risk", value: stats.highRisk.toString(), change: stats.highRisk > 0 ? "Needs attention" : "None", icon: Bell },
+    { label: "Acknowledged", value: stats.acknowledged.toString(), change: "In progress", icon: Clock },
+    { label: "Resolved Today", value: stats.resolvedToday.toString(), change: "Great work!", icon: CheckCircle },
+  ];
 
   return (
     <div className="min-h-screen bg-muted/30">
@@ -126,12 +138,16 @@ const TherapistDashboard = () => {
           </Link>
 
           <div className="flex items-center gap-4">
-            <span className="text-sm text-muted-foreground hidden sm:inline">Dr. Sarah Mitchell</span>
-            <Button variant="ghost" size="sm" asChild>
-              <Link to="/">
-                <LogOut className="w-4 h-4 mr-2" />
-                Logout
-              </Link>
+            {stats.highRisk > 0 && (
+              <Badge variant="high" className="animate-pulse">
+                <Bell className="w-3 h-3 mr-1" />
+                {stats.highRisk} High Risk
+              </Badge>
+            )}
+            <span className="text-sm text-muted-foreground hidden sm:inline">{user?.email}</span>
+            <Button variant="ghost" size="sm" onClick={handleLogout}>
+              <LogOut className="w-4 h-4 mr-2" />
+              Logout
             </Button>
           </div>
         </div>
@@ -140,19 +156,31 @@ const TherapistDashboard = () => {
       <main className="container mx-auto px-4 py-8">
         {/* Stats Grid */}
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          {stats.map((stat) => (
+          {dashboardStats.map((stat) => (
             <Card key={stat.label} variant="default">
               <CardContent className="p-6">
                 <div className="flex items-start justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground">{stat.label}</p>
                     <p className="text-3xl font-display font-bold mt-1">{stat.value}</p>
-                    <p className={`text-xs mt-1 ${stat.change.startsWith("+") ? "text-success" : stat.change.startsWith("-") ? "text-primary" : "text-muted-foreground"}`}>
-                      {stat.change} from yesterday
+                    <p className={`text-xs mt-1 ${
+                      stat.label === "High Risk" && stats.highRisk > 0 
+                        ? "text-destructive" 
+                        : "text-muted-foreground"
+                    }`}>
+                      {stat.change}
                     </p>
                   </div>
-                  <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                    <stat.icon className="w-5 h-5 text-primary" />
+                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                    stat.label === "High Risk" && stats.highRisk > 0 
+                      ? "bg-destructive/10" 
+                      : "bg-primary/10"
+                  }`}>
+                    <stat.icon className={`w-5 h-5 ${
+                      stat.label === "High Risk" && stats.highRisk > 0 
+                        ? "text-destructive" 
+                        : "text-primary"
+                    }`} />
                   </div>
                 </div>
               </CardContent>
@@ -164,7 +192,12 @@ const TherapistDashboard = () => {
           <TabsList className="bg-card shadow-soft border border-border">
             <TabsTrigger value="queue" className="gap-2">
               <AlertTriangle className="w-4 h-4" />
-              Escalation Queue
+              Crisis Alerts
+              {stats.pending > 0 && (
+                <Badge variant="destructive" className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs">
+                  {stats.pending}
+                </Badge>
+              )}
             </TabsTrigger>
             <TabsTrigger value="analytics" className="gap-2">
               <BarChart3 className="w-4 h-4" />
@@ -174,16 +207,21 @@ const TherapistDashboard = () => {
 
           <TabsContent value="queue" className="space-y-6">
             <div className="flex flex-col lg:flex-row gap-6">
-              {/* Cases Table */}
+              {/* Alerts Table */}
               <Card variant="default" className="flex-1">
                 <CardHeader>
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
-                      <CardTitle>Escalation Queue</CardTitle>
-                      <CardDescription>Cases requiring therapist attention</CardDescription>
+                      <CardTitle className="flex items-center gap-2">
+                        Real-time Crisis Alerts
+                        <Button variant="ghost" size="sm" onClick={refetch}>
+                          <RefreshCw className="w-4 h-4" />
+                        </Button>
+                      </CardTitle>
+                      <CardDescription>Live alerts requiring immediate attention</CardDescription>
                     </div>
                     <div className="flex gap-2">
-                      {(["all", "high", "medium", "low"] as const).map((level) => (
+                      {(["all", "high", "medium"] as const).map((level) => (
                         <Button
                           key={level}
                           variant={riskFilter === level ? "default" : "outline"}
@@ -197,92 +235,107 @@ const TherapistDashboard = () => {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="rounded-lg border border-border overflow-hidden">
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="bg-muted/50">
-                          <TableHead>Case ID</TableHead>
-                          <TableHead>User</TableHead>
-                          <TableHead>Risk</TableHead>
-                          <TableHead>Time</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead className="text-right">Action</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {filteredCases.map((caseItem) => (
-                          <TableRow 
-                            key={caseItem.id}
-                            className={`cursor-pointer hover:bg-muted/50 transition-colors ${
-                              selectedCase?.id === caseItem.id ? "bg-primary/5" : ""
-                            }`}
-                            onClick={() => setSelectedCase(caseItem)}
-                          >
-                            <TableCell className="font-mono text-sm">{caseItem.id}</TableCell>
-                            <TableCell>{caseItem.pseudoUserId}</TableCell>
-                            <TableCell>
-                              <Badge variant={caseItem.riskLevel}>{caseItem.riskLevel.toUpperCase()}</Badge>
-                            </TableCell>
-                            <TableCell className="text-muted-foreground">{formatTime(caseItem.time)}</TableCell>
-                            <TableCell>
-                              <Badge 
-                                variant={
-                                  caseItem.status === "resolved" ? "success" : 
-                                  caseItem.status === "acknowledged" ? "warning" : "outline"
-                                }
-                              >
-                                {caseItem.status}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <Button variant="ghost" size="sm">
-                                <Eye className="w-4 h-4" />
-                              </Button>
-                            </TableCell>
+                  {isLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                    </div>
+                  ) : filteredAlerts.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <CheckCircle className="w-12 h-12 mx-auto mb-2 text-success opacity-50" />
+                      <p>No crisis alerts at this time</p>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-border overflow-hidden">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-muted/50">
+                            <TableHead>User</TableHead>
+                            <TableHead>Risk</TableHead>
+                            <TableHead>Feeling</TableHead>
+                            <TableHead>Time</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead className="text-right">Action</TableHead>
                           </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
+                        </TableHeader>
+                        <TableBody>
+                          {filteredAlerts.map((alert) => (
+                            <TableRow 
+                              key={alert.id}
+                              className={`cursor-pointer hover:bg-muted/50 transition-colors ${
+                                selectedAlert?.id === alert.id ? "bg-primary/5" : ""
+                              } ${alert.risk_level === "high" && alert.status === "pending" ? "bg-destructive/5" : ""}`}
+                              onClick={() => setSelectedAlert(alert)}
+                            >
+                              <TableCell className="font-mono text-sm">{alert.pseudo_user_id}</TableCell>
+                              <TableCell>
+                                <Badge variant={alert.risk_level}>{alert.risk_level.toUpperCase()}</Badge>
+                              </TableCell>
+                              <TableCell className="text-muted-foreground">{alert.primary_feeling || "—"}</TableCell>
+                              <TableCell className="text-muted-foreground">{formatTime(alert.created_at)}</TableCell>
+                              <TableCell>
+                                <Badge 
+                                  variant={
+                                    alert.status === "resolved" ? "success" : 
+                                    alert.status === "acknowledged" ? "warning" : "outline"
+                                  }
+                                >
+                                  {alert.status}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <Button variant="ghost" size="sm">
+                                  <Eye className="w-4 h-4" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
-              {/* Case Detail Panel */}
+              {/* Alert Detail Panel */}
               <Card variant="default" className="lg:w-96">
                 <CardHeader>
-                  <CardTitle className="text-lg">Case Details</CardTitle>
+                  <CardTitle className="text-lg">Alert Details</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {selectedCase ? (
+                  {selectedAlert ? (
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
-                        <span className="text-sm text-muted-foreground">Case ID</span>
-                        <span className="font-mono">{selectedCase.id}</span>
+                        <span className="text-sm text-muted-foreground">User ID</span>
+                        <span className="font-mono">{selectedAlert.pseudo_user_id}</span>
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-muted-foreground">Risk Level</span>
-                        <Badge variant={selectedCase.riskLevel}>{selectedCase.riskLevel.toUpperCase()}</Badge>
+                        <Badge variant={selectedAlert.risk_level}>{selectedAlert.risk_level.toUpperCase()}</Badge>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Primary Feeling</span>
+                        <span className="capitalize">{selectedAlert.primary_feeling || "Unknown"}</span>
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-muted-foreground">Status</span>
-                        <Badge variant={selectedCase.status === "resolved" ? "success" : "outline"}>
-                          {selectedCase.status}
+                        <Badge variant={selectedAlert.status === "resolved" ? "success" : "outline"}>
+                          {selectedAlert.status}
                         </Badge>
                       </div>
 
                       <div className="pt-4 border-t border-border">
-                        <p className="text-sm text-muted-foreground mb-2">Last Message</p>
+                        <p className="text-sm text-muted-foreground mb-2">Message Preview</p>
                         <p className="text-sm bg-muted/50 p-3 rounded-lg italic">
-                          "{selectedCase.lastMessage}"
+                          "{selectedAlert.message_preview}"
                         </p>
                       </div>
 
                       <div className="pt-4 space-y-2">
-                        {selectedCase.status === "pending" && (
+                        {selectedAlert.status === "pending" && (
                           <Button 
                             variant="default" 
                             className="w-full"
-                            onClick={() => handleAcknowledge(selectedCase.id)}
+                            onClick={() => acknowledgeAlert(selectedAlert.id)}
                           >
                             <CheckCircle className="w-4 h-4 mr-2" />
                             Acknowledge
@@ -292,11 +345,14 @@ const TherapistDashboard = () => {
                           <MessageSquare className="w-4 h-4 mr-2" />
                           Start Secure Chat
                         </Button>
-                        {selectedCase.status !== "resolved" && (
+                        {selectedAlert.status !== "resolved" && (
                           <Button 
                             variant="outline" 
                             className="w-full"
-                            onClick={() => handleResolve(selectedCase.id)}
+                            onClick={() => {
+                              resolveAlert(selectedAlert.id);
+                              setSelectedAlert(null);
+                            }}
                           >
                             <XCircle className="w-4 h-4 mr-2" />
                             Mark as Resolved
@@ -307,7 +363,7 @@ const TherapistDashboard = () => {
                   ) : (
                     <div className="text-center py-8 text-muted-foreground">
                       <Eye className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                      <p className="text-sm">Select a case to view details</p>
+                      <p className="text-sm">Select an alert to view details</p>
                     </div>
                   )}
                 </CardContent>
@@ -321,7 +377,7 @@ const TherapistDashboard = () => {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <TrendingUp className="w-5 h-5 text-primary" />
-                    Weekly Active Sessions
+                    Weekly Alert Trend
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -345,7 +401,7 @@ const TherapistDashboard = () => {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Activity className="w-5 h-5 text-success" />
-                    Escalations This Week
+                    Risk Distribution
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -356,7 +412,7 @@ const TherapistDashboard = () => {
                         <div className="w-24 h-2 rounded-full bg-muted overflow-hidden">
                           <div className="w-3/4 h-full bg-destructive" />
                         </div>
-                        <span className="text-sm font-medium">12</span>
+                        <span className="text-sm font-medium">{alerts.filter(a => a.risk_level === "high").length}</span>
                       </div>
                     </div>
                     <div className="flex items-center justify-between">
@@ -365,16 +421,7 @@ const TherapistDashboard = () => {
                         <div className="w-24 h-2 rounded-full bg-muted overflow-hidden">
                           <div className="w-1/2 h-full bg-warning" />
                         </div>
-                        <span className="text-sm font-medium">28</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm">Low Risk</span>
-                      <div className="flex items-center gap-2">
-                        <div className="w-24 h-2 rounded-full bg-muted overflow-hidden">
-                          <div className="w-1/4 h-full bg-success" />
-                        </div>
-                        <span className="text-sm font-medium">45</span>
+                        <span className="text-sm font-medium">{alerts.filter(a => a.risk_level === "medium").length}</span>
                       </div>
                     </div>
                   </div>
@@ -391,17 +438,19 @@ const TherapistDashboard = () => {
                 <CardContent>
                   <div className="space-y-4">
                     <div className="text-center">
-                      <p className="text-4xl font-display font-bold text-primary">4.2<span className="text-lg">min</span></p>
-                      <p className="text-sm text-muted-foreground">Avg Response Time</p>
+                      <p className="text-4xl font-display font-bold text-primary">
+                        {stats.resolvedToday}<span className="text-lg ml-1">today</span>
+                      </p>
+                      <p className="text-sm text-muted-foreground">Cases Resolved</p>
                     </div>
                     <div className="grid grid-cols-2 gap-4 pt-4 border-t border-border">
                       <div className="text-center">
-                        <p className="text-2xl font-bold">23</p>
-                        <p className="text-xs text-muted-foreground">Resolved Today</p>
+                        <p className="text-2xl font-bold">{stats.pending}</p>
+                        <p className="text-xs text-muted-foreground">Pending</p>
                       </div>
                       <div className="text-center">
-                        <p className="text-2xl font-bold">98%</p>
-                        <p className="text-xs text-muted-foreground">Satisfaction</p>
+                        <p className="text-2xl font-bold">{stats.acknowledged}</p>
+                        <p className="text-xs text-muted-foreground">In Progress</p>
                       </div>
                     </div>
                   </div>
