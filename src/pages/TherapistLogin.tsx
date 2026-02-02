@@ -15,70 +15,41 @@ const TherapistLogin = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Check if already logged in with therapist role
-    const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        const { data: roles } = await supabase
-          .from('user_roles')
-          .select('role')
-          .eq('user_id', session.user.id)
-          .in('role', ['therapist', 'admin']);
-        
-        if (roles && roles.length > 0) {
-          navigate("/therapist/dashboard");
-        }
-      }
-    };
-    checkAuth();
+    // Check if already logged in as therapist
+    const session = localStorage.getItem("therapist_session");
+    if (session) {
+      navigate("/therapist/dashboard");
+    }
   }, [navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
 
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+    // Fixed password for therapist access
+    const THERAPIST_PASSWORD = "therapist@123";
 
-      if (error) {
-        toast.error(error.message);
-        setIsLoading(false);
-        return;
-      }
-
-      if (data.user) {
-        // Check if user has therapist or admin role
-        const { data: roles, error: roleError } = await supabase
-          .from('user_roles')
-          .select('role')
-          .eq('user_id', data.user.id)
-          .in('role', ['therapist', 'admin']);
-
-        if (roleError) {
-          toast.error("Error checking permissions");
-          await supabase.auth.signOut();
-          setIsLoading(false);
-          return;
-        }
-
-        if (!roles || roles.length === 0) {
-          toast.error("Access denied. You don't have therapist privileges.");
-          await supabase.auth.signOut();
-          setIsLoading(false);
-          return;
-        }
-
-        toast.success("Login successful!");
-        navigate("/therapist/dashboard");
-      }
-    } catch (err) {
-      toast.error("An unexpected error occurred");
-    } finally {
+    if (password !== THERAPIST_PASSWORD) {
+      toast.error("Invalid credentials");
       setIsLoading(false);
+      return;
     }
+
+    if (!email.includes("@")) {
+      toast.error("Please enter a valid email");
+      setIsLoading(false);
+      return;
+    }
+
+    // Store therapist session
+    localStorage.setItem("therapist_session", JSON.stringify({ 
+      email, 
+      loggedInAt: new Date().toISOString() 
+    }));
+
+    toast.success("Login successful!");
+    navigate("/therapist/dashboard");
+    setIsLoading(false);
   };
 
   return (
