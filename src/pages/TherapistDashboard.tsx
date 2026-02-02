@@ -30,44 +30,32 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCrisisAlerts, CrisisAlert } from "@/hooks/useCrisisAlerts";
-import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 const TherapistDashboard = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
   const { alerts, isLoading, stats, acknowledgeAlert, resolveAlert, refetch } = useCrisisAlerts();
   const [selectedAlert, setSelectedAlert] = useState<CrisisAlert | null>(null);
   const [riskFilter, setRiskFilter] = useState<"all" | "high" | "medium">("all");
-  const [isTherapist, setIsTherapist] = useState<boolean | null>(null);
+  const [therapistEmail, setTherapistEmail] = useState<string | null>(null);
 
-  // Check if user has therapist role
+  // Check if therapist is logged in via localStorage
   useEffect(() => {
-    const checkTherapistRole = async () => {
-      if (!user) {
-        setIsTherapist(false);
-        return;
-      }
-
-      try {
-        const { data, error } = await supabase
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", user.id)
-          .in("role", ["therapist", "admin"]);
-
-        if (error) throw error;
-
-        setIsTherapist(data && data.length > 0);
-      } catch (e) {
-        console.error("Error checking therapist role:", e);
-        setIsTherapist(false);
-      }
-    };
-
-    checkTherapistRole();
-  }, [user]);
+    const session = localStorage.getItem("therapist_session");
+    if (!session) {
+      navigate("/therapist");
+      return;
+    }
+    
+    try {
+      const parsed = JSON.parse(session);
+      setTherapistEmail(parsed.email);
+    } catch {
+      localStorage.removeItem("therapist_session");
+      navigate("/therapist");
+    }
+  }, [navigate]);
 
   const filteredAlerts = alerts.filter(
     (a) => riskFilter === "all" || a.risk_level === riskFilter
@@ -83,39 +71,21 @@ const TherapistDashboard = () => {
     return date.toLocaleDateString();
   };
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    navigate("/");
+  const handleLogout = () => {
+    localStorage.removeItem("therapist_session");
+    toast.success("Logged out successfully");
+    navigate("/therapist");
   };
 
-  // Show access denied for non-therapists
-  if (isTherapist === false) {
-    return (
-      <div className="min-h-screen gradient-calm flex items-center justify-center p-4">
-        <Card className="w-full max-w-md">
-          <CardContent className="pt-6 text-center">
-            <AlertTriangle className="w-12 h-12 text-warning mx-auto mb-4" />
-            <h2 className="text-xl font-bold mb-2">Access Restricted</h2>
-            <p className="text-muted-foreground mb-4">
-              This dashboard is only available to verified therapists.
-            </p>
-            <Button asChild>
-              <Link to="/">Return Home</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
   // Loading state
-  if (isTherapist === null) {
+  if (!therapistEmail) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
   }
+
 
   const dashboardStats = [
     { label: "Pending Alerts", value: stats.pending.toString(), change: stats.highRisk > 0 ? `${stats.highRisk} high risk` : "All stable", icon: AlertTriangle },
@@ -144,7 +114,7 @@ const TherapistDashboard = () => {
                 {stats.highRisk} High Risk
               </Badge>
             )}
-            <span className="text-sm text-muted-foreground hidden sm:inline">{user?.email}</span>
+            <span className="text-sm text-muted-foreground hidden sm:inline">{therapistEmail}</span>
             <Button variant="ghost" size="sm" onClick={handleLogout}>
               <LogOut className="w-4 h-4 mr-2" />
               Logout
