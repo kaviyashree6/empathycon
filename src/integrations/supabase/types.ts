@@ -14,6 +14,75 @@ export type Database = {
   }
   public: {
     Tables: {
+      achievements: {
+        Row: {
+          category: string
+          created_at: string
+          description: string
+          icon: string
+          id: string
+          name: string
+          points: number
+          requirement_type: string
+          requirement_value: number
+        }
+        Insert: {
+          category?: string
+          created_at?: string
+          description: string
+          icon: string
+          id?: string
+          name: string
+          points?: number
+          requirement_type: string
+          requirement_value?: number
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          description?: string
+          icon?: string
+          id?: string
+          name?: string
+          points?: number
+          requirement_type?: string
+          requirement_value?: number
+        }
+        Relationships: []
+      }
+      ai_insights: {
+        Row: {
+          average_mood: number | null
+          created_at: string
+          id: string
+          mood_summary: string | null
+          patterns_detected: Json | null
+          recommendations: Json | null
+          user_id: string
+          week_start: string
+        }
+        Insert: {
+          average_mood?: number | null
+          created_at?: string
+          id?: string
+          mood_summary?: string | null
+          patterns_detected?: Json | null
+          recommendations?: Json | null
+          user_id: string
+          week_start: string
+        }
+        Update: {
+          average_mood?: number | null
+          created_at?: string
+          id?: string
+          mood_summary?: string | null
+          patterns_detected?: Json | null
+          recommendations?: Json | null
+          user_id?: string
+          week_start?: string
+        }
+        Relationships: []
+      }
       chat_messages: {
         Row: {
           content: string
@@ -88,6 +157,42 @@ export type Database = {
         }
         Relationships: []
       }
+      community_stories: {
+        Row: {
+          anonymous_name: string
+          content: string
+          created_at: string
+          hearts_count: number
+          id: string
+          is_approved: boolean
+          mood_tag: string | null
+          title: string
+          user_id: string
+        }
+        Insert: {
+          anonymous_name: string
+          content: string
+          created_at?: string
+          hearts_count?: number
+          id?: string
+          is_approved?: boolean
+          mood_tag?: string | null
+          title: string
+          user_id: string
+        }
+        Update: {
+          anonymous_name?: string
+          content?: string
+          created_at?: string
+          hearts_count?: number
+          id?: string
+          is_approved?: boolean
+          mood_tag?: string | null
+          title?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       crisis_alerts: {
         Row: {
           acknowledged_at: string | null
@@ -153,6 +258,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      daily_check_ins: {
+        Row: {
+          check_in_date: string
+          created_at: string
+          energy_level: number | null
+          gratitude_note: string | null
+          id: string
+          mood_score: number
+          sleep_quality: number | null
+          user_id: string
+        }
+        Insert: {
+          check_in_date?: string
+          created_at?: string
+          energy_level?: number | null
+          gratitude_note?: string | null
+          id?: string
+          mood_score: number
+          sleep_quality?: number | null
+          user_id: string
+        }
+        Update: {
+          check_in_date?: string
+          created_at?: string
+          energy_level?: number | null
+          gratitude_note?: string | null
+          id?: string
+          mood_score?: number
+          sleep_quality?: number | null
+          user_id?: string
+        }
+        Relationships: []
       }
       journal_entries: {
         Row: {
@@ -229,6 +367,64 @@ export type Database = {
         }
         Relationships: []
       }
+      story_hearts: {
+        Row: {
+          created_at: string
+          id: string
+          story_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          story_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          story_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "story_hearts_story_id_fkey"
+            columns: ["story_id"]
+            isOneToOne: false
+            referencedRelation: "community_stories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_achievements: {
+        Row: {
+          achievement_id: string
+          id: string
+          unlocked_at: string
+          user_id: string
+        }
+        Insert: {
+          achievement_id: string
+          id?: string
+          unlocked_at?: string
+          user_id: string
+        }
+        Update: {
+          achievement_id?: string
+          id?: string
+          unlocked_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_achievements_achievement_id_fkey"
+            columns: ["achievement_id"]
+            isOneToOne: false
+            referencedRelation: "achievements"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -246,6 +442,39 @@ export type Database = {
           created_at?: string
           id?: string
           role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
+      wellness_streaks: {
+        Row: {
+          created_at: string
+          current_streak: number
+          id: string
+          last_check_in: string | null
+          longest_streak: number
+          total_check_ins: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          current_streak?: number
+          id?: string
+          last_check_in?: string | null
+          longest_streak?: number
+          total_check_ins?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          current_streak?: number
+          id?: string
+          last_check_in?: string | null
+          longest_streak?: number
+          total_check_ins?: number
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
