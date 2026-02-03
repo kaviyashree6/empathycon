@@ -13,6 +13,7 @@ import NotFound from "./pages/NotFound";
 import { JournalPage } from "./components/journal/JournalPage";
 import { BreathingExercise } from "./components/breathing/BreathingExercise";
 import Settings from "./pages/Settings";
+import Wellness from "./pages/Wellness";
 
 const queryClient = new QueryClient();
 
@@ -30,6 +31,7 @@ const App = () => (
             <Route path="/journal" element={<JournalPage />} />
             <Route path="/breathing" element={<BreathingExercise />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/wellness" element={<Wellness />} />
             <Route path="/therapist" element={<TherapistLogin />} />
             <Route path="/therapist/dashboard" element={<TherapistDashboard />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
