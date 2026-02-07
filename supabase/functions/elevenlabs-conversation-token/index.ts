@@ -27,6 +27,7 @@ Deno.serve(async (req) => {
     }
 
     console.log(`Requesting conversation token for agent: ${agentId}`);
+    console.log(`API key present: ${!!ELEVENLABS_API_KEY}, length: ${ELEVENLABS_API_KEY.length}`);
 
     const response = await fetch(
       `https://api.elevenlabs.io/v1/convai/conversation/token?agent_id=${agentId}`,
@@ -39,8 +40,8 @@ Deno.serve(async (req) => {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("ElevenLabs token error:", errorText);
-      throw new Error(`Failed to get token: ${response.status}`);
+      console.error(`ElevenLabs token error (${response.status}):`, errorText);
+      throw new Error(`Failed to get token: ${response.status} - ${errorText}`);
     }
 
     const { token } = await response.json();
