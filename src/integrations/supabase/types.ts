@@ -332,6 +332,7 @@ export type Database = {
         Row: {
           created_at: string
           display_name: string | null
+          elevenlabs_agent_id: string | null
           email_notifications: boolean | null
           id: string
           preferred_language: string | null
@@ -344,6 +345,7 @@ export type Database = {
         Insert: {
           created_at?: string
           display_name?: string | null
+          elevenlabs_agent_id?: string | null
           email_notifications?: boolean | null
           id?: string
           preferred_language?: string | null
@@ -356,6 +358,7 @@ export type Database = {
         Update: {
           created_at?: string
           display_name?: string | null
+          elevenlabs_agent_id?: string | null
           email_notifications?: boolean | null
           id?: string
           preferred_language?: string | null
