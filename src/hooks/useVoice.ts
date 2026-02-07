@@ -58,8 +58,12 @@ export function useVoice(language: LanguageCode = "en") {
       try {
         setState("speaking");
 
-        const audioBlob = await textToSpeech(text, language);
-        await playAudioBlob(audioBlob);
+        const result = await textToSpeech(text, language);
+
+        // If browser fallback was used, audio already played via speechSynthesis
+        if (result !== "browser-fallback") {
+          await playAudioBlob(result);
+        }
 
         setState("idle");
       } catch (error) {
