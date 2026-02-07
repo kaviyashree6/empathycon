@@ -65,11 +65,27 @@ export function VoiceAgent({ agentId, onClose }: VoiceAgentProps) {
       );
 
       if (error) {
-        throw new Error(error.message || "Failed to get conversation token");
+        // Try to parse the error body for a better message
+        let errorMsg = "Failed to get conversation token";
+        try {
+          const errorBody = typeof error === "object" && "message" in error 
+            ? JSON.parse(error.message) 
+            : null;
+          if (errorBody?.error) {
+            errorMsg = errorBody.error;
+          }
+        } catch {
+          if (error.message) errorMsg = error.message;
+        }
+        throw new Error(errorMsg);
+      }
+
+      if (data?.error) {
+        throw new Error(data.error);
       }
 
       if (!data?.token) {
-        throw new Error("No token received");
+        throw new Error("No token received. Please check your ElevenLabs configuration in Settings.");
       }
 
       // Start the conversation with WebRTC
@@ -80,7 +96,8 @@ export function VoiceAgent({ agentId, onClose }: VoiceAgentProps) {
     } catch (error) {
       console.error("Failed to start conversation:", error);
       toast.error(
-        error instanceof Error ? error.message : "Failed to start voice call"
+        error instanceof Error ? error.message : "Failed to start voice call",
+        { duration: 8000 }
       );
       setIsConnecting(false);
     }

@@ -21,8 +21,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
-// Default ElevenLabs agent ID - users can configure their own
+// Default ElevenLabs agent ID - users can configure their own in Settings
 const DEFAULT_AGENT_ID = "agent_01jdqv3wqvfhxqdfbfc0ch7thz";
 
 const ChatPortal = () => {
@@ -33,6 +34,7 @@ const ChatPortal = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [voiceCallOpen, setVoiceCallOpen] = useState(false);
   const [language, setLanguage] = useState<LanguageCode>("en");
+  const [agentId, setAgentId] = useState(DEFAULT_AGENT_ID);
 
   const { messages, isTyping, lastEmotion, sendMessage, setMessages } = useChat();
   const {
@@ -56,6 +58,22 @@ const ChatPortal = () => {
     speak,
     toggleVoice,
   } = useVoice(language);
+
+  // Load user's configured agent ID
+  useEffect(() => {
+    if (user) {
+      supabase
+        .from("profiles")
+        .select("elevenlabs_agent_id")
+        .eq("user_id", user.id)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data?.elevenlabs_agent_id) {
+            setAgentId(data.elevenlabs_agent_id);
+          }
+        });
+    }
+  }, [user]);
 
   // Create session on first load
   useEffect(() => {
@@ -177,7 +195,7 @@ const ChatPortal = () => {
       {voiceCallOpen && (
         <div className="fixed inset-0 bg-foreground/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <VoiceAgent 
-            agentId={DEFAULT_AGENT_ID} 
+            agentId={agentId} 
             onClose={() => setVoiceCallOpen(false)} 
           />
         </div>
