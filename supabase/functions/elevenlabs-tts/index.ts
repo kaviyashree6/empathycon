@@ -78,7 +78,22 @@ Deno.serve(async (req) => {
     if (!response.ok) {
       const errorText = await response.text();
       console.error("ElevenLabs TTS error:", errorText);
-      throw new Error(`TTS failed: ${response.status}`);
+      
+      // Parse specific error types
+      let userError = `TTS failed: ${response.status}`;
+      try {
+        const errorJson = JSON.parse(errorText);
+        if (errorJson?.detail?.status === "quota_exceeded") {
+          userError = "ElevenLabs quota exceeded. Please upgrade your plan or wait for credits to reset.";
+        } else if (response.status === 401) {
+          userError = "Invalid ElevenLabs API key. Please update it in your connector settings.";
+        }
+      } catch {}
+      
+      return new Response(
+        JSON.stringify({ error: userError }),
+        { status: response.status === 401 ? 402 : response.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     // Stream the audio response
