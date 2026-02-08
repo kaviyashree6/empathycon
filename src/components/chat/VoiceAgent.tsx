@@ -1,5 +1,5 @@
 import { useConversation } from "@elevenlabs/react";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, memo } from "react";
 import { Phone, PhoneOff, Loader2, Mic, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,22 +13,34 @@ type VoiceAgentProps = {
   onClose?: () => void;
 };
 
-export function VoiceAgent({ agentId, onClose }: VoiceAgentProps) {
+function VoiceAgentInner({ agentId, onClose }: VoiceAgentProps) {
   const [isConnecting, setIsConnecting] = useState(false);
   const [transcript, setTranscript] = useState<string[]>([]);
+  // Use ref to avoid recreating onMessage callback
+  const transcriptRef = useRef(transcript);
+  transcriptRef.current = transcript;
 
   const conversation = useConversation({
     onConnect: () => {
-      console.log("Connected to voice agent");
+      console.log("Voice agent: connected");
       toast.success("Voice call connected!");
     },
     onDisconnect: () => {
-      console.log("Disconnected from voice agent");
+      console.log("Voice agent: disconnected");
       setIsConnecting(false);
     },
     onMessage: (message: unknown) => {
-      console.log("Voice agent message:", message);
-      const msg = message as { type?: string; user_transcription_event?: { user_transcript?: string }; agent_response_event?: { agent_response?: string } };
+      console.log("Voice agent message:", JSON.stringify(message));
+      const msg = message as {
+        type?: string;
+        source?: string;
+        role?: string;
+        message?: string;
+        user_transcription_event?: { user_transcript?: string };
+        agent_response_event?: { agent_response?: string };
+      };
+
+      // Handle different message formats from ElevenLabs
       if (msg.type === "user_transcript") {
         setTranscript((prev) => [
           ...prev,
@@ -39,6 +51,11 @@ export function VoiceAgent({ agentId, onClose }: VoiceAgentProps) {
           ...prev,
           `AI: ${msg.agent_response_event?.agent_response || ""}`,
         ]);
+      } else if (msg.role === "agent" && msg.message) {
+        // Alternative message format
+        setTranscript((prev) => [...prev, `AI: ${msg.message}`]);
+      } else if (msg.role === "user" && msg.message) {
+        setTranscript((prev) => [...prev, `You: ${msg.message}`]);
       }
     },
     onError: (error) => {
@@ -65,12 +82,12 @@ export function VoiceAgent({ agentId, onClose }: VoiceAgentProps) {
       );
 
       if (error) {
-        // Try to parse the error body for a better message
         let errorMsg = "Failed to get conversation token";
         try {
-          const errorBody = typeof error === "object" && "message" in error 
-            ? JSON.parse(error.message) 
-            : null;
+          const errorBody =
+            typeof error === "object" && "message" in error
+              ? JSON.parse(error.message)
+              : null;
           if (errorBody?.error) {
             errorMsg = errorBody.error;
           }
@@ -85,18 +102,25 @@ export function VoiceAgent({ agentId, onClose }: VoiceAgentProps) {
       }
 
       if (!data?.token) {
-        throw new Error("No token received. Please check your ElevenLabs configuration in Settings.");
+        throw new Error(
+          "No token received. Please check your ElevenLabs configuration in Settings."
+        );
       }
+
+      console.log("Voice agent: starting session with token...");
 
       // Start the conversation with WebRTC
       await conversation.startSession({
         conversationToken: data.token,
-        connectionType: "webrtc",
       });
+
+      console.log("Voice agent: session started successfully");
     } catch (error) {
       console.error("Failed to start conversation:", error);
       toast.error(
-        error instanceof Error ? error.message : "Failed to start voice call",
+        error instanceof Error
+          ? error.message
+          : "Failed to start voice call",
         { duration: 8000 }
       );
       setIsConnecting(false);
@@ -104,7 +128,11 @@ export function VoiceAgent({ agentId, onClose }: VoiceAgentProps) {
   }, [conversation, agentId]);
 
   const stopConversation = useCallback(async () => {
-    await conversation.endSession();
+    try {
+      await conversation.endSession();
+    } catch (e) {
+      console.warn("Error ending session:", e);
+    }
     onClose?.();
   }, [conversation, onClose]);
 
@@ -133,7 +161,11 @@ export function VoiceAgent({ agentId, onClose }: VoiceAgentProps) {
           />
           <Badge
             variant={
-              isConnected ? "default" : isConnecting ? "secondary" : "outline"
+              isConnected
+                ? "default"
+                : isConnecting
+                ? "secondary"
+                : "outline"
             }
           >
             {isConnected
@@ -242,3 +274,6 @@ export function VoiceAgent({ agentId, onClose }: VoiceAgentProps) {
     </Card>
   );
 }
+
+// Memoize to prevent re-renders from parent state changes (e.g. chat messages)
+export const VoiceAgent = memo(VoiceAgentInner);
