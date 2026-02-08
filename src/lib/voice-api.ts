@@ -56,7 +56,8 @@ export function browserTextToSpeech(
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     if (!window.speechSynthesis) {
-      reject(new Error("Browser speech synthesis not supported"));
+      console.warn("Browser speech synthesis not supported, resolving silently");
+      resolve();
       return;
     }
 
@@ -68,18 +69,41 @@ export function browserTextToSpeech(
     utterance.rate = 0.95;
     utterance.pitch = 1.0;
 
-    // Try to find a matching voice
-    const voices = window.speechSynthesis.getVoices();
-    const matchingVoice = voices.find((v) => v.lang.startsWith(utterance.lang.split("-")[0]));
-    if (matchingVoice) {
-      utterance.voice = matchingVoice;
-    }
+    // Try to find a matching voice (voices may load async)
+    const assignVoice = () => {
+      const voices = window.speechSynthesis.getVoices();
+      const matchingVoice = voices.find((v) =>
+        v.lang.startsWith(utterance.lang.split("-")[0])
+      );
+      if (matchingVoice) {
+        utterance.voice = matchingVoice;
+      }
+    };
+
+    assignVoice();
 
     utterance.onend = () => resolve();
-    utterance.onerror = (e) => reject(new Error(`Browser TTS failed: ${e.error}`));
+    utterance.onerror = (e) => {
+      // "interrupted" and "canceled" are not real errors
+      if (e.error === "interrupted" || e.error === "canceled") {
+        resolve();
+      } else {
+        console.warn(`Browser TTS error: ${e.error}`);
+        resolve(); // Resolve anyway so the app doesn't break
+      }
+    };
 
     window.speechSynthesis.speak(utterance);
   });
+}
+
+/**
+ * Stop any ongoing browser speech synthesis
+ */
+export function stopBrowserSpeech(): void {
+  if (window.speechSynthesis) {
+    window.speechSynthesis.cancel();
+  }
 }
 
 /**

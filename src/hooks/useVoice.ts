@@ -4,6 +4,8 @@ import {
   textToSpeech,
   speechToText,
   playAudioBlob,
+  stopBrowserSpeech,
+  isElevenLabsQuotaExhausted,
   LanguageCode,
 } from "@/lib/voice-api";
 import { toast } from "sonner";
@@ -63,12 +65,15 @@ export function useVoice(language: LanguageCode = "en") {
         // If browser fallback was used, audio already played via speechSynthesis
         if (result !== "browser-fallback") {
           await playAudioBlob(result);
+        } else if (isElevenLabsQuotaExhausted()) {
+          toast.info("Using browser voice (ElevenLabs quota exceeded)", { id: "tts-fallback", duration: 3000 });
         }
 
         setState("idle");
       } catch (error) {
         console.error("Text-to-speech failed:", error);
-        toast.error("Could not play audio response.");
+        // Don't show error toast if we can try browser fallback
+        toast.error("Voice playback unavailable.");
         setState("idle");
       }
     },
@@ -80,6 +85,7 @@ export function useVoice(language: LanguageCode = "en") {
       currentAudioRef.current.pause();
       currentAudioRef.current = null;
     }
+    stopBrowserSpeech();
     setState("idle");
   }, []);
 
