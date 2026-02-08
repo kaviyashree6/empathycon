@@ -93,15 +93,15 @@ const ChatPortal = () => {
     }
   }, [currentSessionId, user, loadMessages, setMessages]);
 
-  // Speak AI responses when voice is enabled
+  // Speak AI responses when voice is enabled (but NOT during voice calls)
   useEffect(() => {
-    if (isVoiceEnabled && messages.length > 0 && !isTyping) {
+    if (isVoiceEnabled && !voiceCallOpen && messages.length > 0 && !isTyping) {
       const lastMessage = messages[messages.length - 1];
       if (lastMessage.role === "assistant" && lastMessage.content) {
         speak(lastMessage.content);
       }
     }
-  }, [messages, isTyping, isVoiceEnabled, speak]);
+  }, [messages, isTyping, isVoiceEnabled, voiceCallOpen, speak]);
 
   const handleSend = useCallback(async () => {
     if (!input.trim() || isTyping) return;
