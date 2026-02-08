@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Send, Heart, Menu, ArrowLeft, LogIn, LogOut, User, Phone } from "lucide-react";
+import { Send, Heart, Menu, ArrowLeft, LogIn, LogOut, User } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,7 +9,7 @@ import { useVoice } from "@/hooks/useVoice";
 import { useAuth } from "@/contexts/AuthContext";
 import { LanguageCode } from "@/lib/voice-api";
 import { VoiceControls } from "@/components/chat/VoiceControls";
-import { VoiceAgent } from "@/components/chat/VoiceAgent";
+import { BrowserVoiceAgent } from "@/components/chat/BrowserVoiceAgent";
 import { LanguageSelector } from "@/components/chat/LanguageSelector";
 import { ChatHistory } from "@/components/chat/ChatHistory";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
@@ -21,10 +21,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 
-// Default ElevenLabs agent ID - users can configure their own in Settings
-const DEFAULT_AGENT_ID = "agent_01jdqv3wqvfhxqdfbfc0ch7thz";
 
 const ChatPortal = () => {
   const { user, signOut } = useAuth();
@@ -34,7 +31,6 @@ const ChatPortal = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [voiceCallOpen, setVoiceCallOpen] = useState(false);
   const [language, setLanguage] = useState<LanguageCode>("en");
-  const [agentId, setAgentId] = useState(DEFAULT_AGENT_ID);
 
   const { messages, isTyping, lastEmotion, sendMessage, setMessages } = useChat();
   const {
@@ -58,22 +54,6 @@ const ChatPortal = () => {
     speak,
     toggleVoice,
   } = useVoice(language);
-
-  // Load user's configured agent ID
-  useEffect(() => {
-    if (user) {
-      supabase
-        .from("profiles")
-        .select("elevenlabs_agent_id")
-        .eq("user_id", user.id)
-        .maybeSingle()
-        .then(({ data }) => {
-          if (data?.elevenlabs_agent_id) {
-            setAgentId(data.elevenlabs_agent_id);
-          }
-        });
-    }
-  }, [user]);
 
   // Create session on first load
   useEffect(() => {
@@ -194,8 +174,8 @@ const ChatPortal = () => {
       {/* Voice Call Modal */}
       {voiceCallOpen && (
         <div className="fixed inset-0 bg-foreground/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <VoiceAgent 
-            agentId={agentId} 
+          <BrowserVoiceAgent 
+            language={language}
             onClose={() => setVoiceCallOpen(false)} 
           />
         </div>
