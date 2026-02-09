@@ -110,6 +110,12 @@ export default {
           "0%, 100%": { boxShadow: "0 0 20px -5px hsl(var(--primary) / 0.3)" },
           "50%": { boxShadow: "0 0 30px -5px hsl(var(--primary) / 0.5)" },
         },
+        "waveform": {
+          "0%, 100%": { height: "6px", opacity: "0.5" },
+          "25%": { height: "24px", opacity: "1" },
+          "50%": { height: "14px", opacity: "0.8" },
+          "75%": { height: "30px", opacity: "1" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -120,6 +126,7 @@ export default {
         "pulse-soft": "pulse-soft 2s ease-in-out infinite",
         "float": "float 3s ease-in-out infinite",
         "glow": "glow 2s ease-in-out infinite",
+        "waveform": "waveform 0.8s ease-in-out infinite",
       },
     },
   },
