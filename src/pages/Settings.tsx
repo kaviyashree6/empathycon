@@ -10,8 +10,6 @@ import {
   Globe,
   Save,
   Loader2,
-  Key,
-  ExternalLink
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,7 +29,6 @@ type ProfileSettings = {
   email_notifications: boolean | null;
   push_notifications: boolean | null;
   theme: string | null;
-  elevenlabs_agent_id: string | null;
 };
 
 const Settings = () => {
@@ -45,7 +42,6 @@ const Settings = () => {
     email_notifications: true,
     push_notifications: true,
     theme: "system",
-    elevenlabs_agent_id: "",
   });
 
   useEffect(() => {
@@ -74,7 +70,6 @@ const Settings = () => {
           email_notifications: data.email_notifications ?? true,
           push_notifications: data.push_notifications ?? true,
           theme: data.theme || "system",
-          elevenlabs_agent_id: data.elevenlabs_agent_id || "",
         });
       }
     } catch (error) {
@@ -103,7 +98,6 @@ const Settings = () => {
           email_notifications: settings.email_notifications,
           push_notifications: settings.push_notifications,
           theme: settings.theme,
-          elevenlabs_agent_id: settings.elevenlabs_agent_id || null,
           updated_at: new Date().toISOString(),
         }, {
           onConflict: "user_id",
@@ -235,69 +229,6 @@ const Settings = () => {
                       <SelectItem value="ko">한국어</SelectItem>
                     </SelectContent>
                   </Select>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* ElevenLabs Configuration */}
-            <Card className="border-primary/20">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Key className="w-5 h-5 text-primary" />
-                  ElevenLabs Voice AI
-                </CardTitle>
-                <CardDescription>
-                  Configure your ElevenLabs Conversational AI agent for voice calls
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="agentId">Agent ID</Label>
-                  <Input
-                    id="agentId"
-                    placeholder="agent_01abc..."
-                    value={settings.elevenlabs_agent_id || ""}
-                    onChange={(e) => updateSetting("elevenlabs_agent_id", e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Find your Agent ID in your{" "}
-                    <a
-                      href="https://elevenlabs.io/app/conversational-ai"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-primary hover:underline inline-flex items-center gap-1"
-                    >
-                      ElevenLabs dashboard
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                  </p>
-                </div>
-
-                <Separator />
-
-                <div className="rounded-lg bg-muted/50 p-4 space-y-2">
-                  <h4 className="text-sm font-medium flex items-center gap-2">
-                    <Key className="w-4 h-4 text-muted-foreground" />
-                    API Key Status
-                  </h4>
-                  <p className="text-xs text-muted-foreground">
-                    Your ElevenLabs API key is managed server-side for security. Make sure your key has{" "}
-                    <span className="font-semibold text-foreground">Conversational AI (convai_write)</span>{" "}
-                    permission enabled.
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    To update your API key, go to{" "}
-                    <a
-                      href="https://elevenlabs.io/app/settings/api-keys"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-primary hover:underline inline-flex items-center gap-1"
-                    >
-                      ElevenLabs → API Keys
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                    {" "}and create a key with full permissions, then update it via your project's connector settings.
-                  </p>
                 </div>
               </CardContent>
             </Card>
