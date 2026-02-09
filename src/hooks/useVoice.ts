@@ -1,55 +1,93 @@
 import { useState, useCallback, useRef } from "react";
 import {
-  AudioRecorder,
   browserTextToSpeech,
-  speechToText,
   stopBrowserSpeech,
   LanguageCode,
 } from "@/lib/voice-api";
 import { toast } from "sonner";
 
+// Browser language mapping for SpeechRecognition
+const RECOGNITION_LANG_MAP: Record<string, string> = {
+  en: "en-US", "en-gb": "en-GB", "en-au": "en-AU",
+  es: "es-ES", fr: "fr-FR", de: "de-DE", pt: "pt-BR",
+  it: "it-IT", ja: "ja-JP", ko: "ko-KR", zh: "zh-CN",
+  hi: "hi-IN", ar: "ar-SA", ru: "ru-RU", nl: "nl-NL", pl: "pl-PL",
+};
+
 type VoiceState = "idle" | "recording" | "processing" | "speaking";
+
+declare global {
+  interface Window {
+    SpeechRecognition: any;
+    webkitSpeechRecognition: any;
+  }
+}
 
 export function useVoice(language: LanguageCode = "en") {
   const [state, setState] = useState<VoiceState>("idle");
   const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
-  const recorderRef = useRef<AudioRecorder | null>(null);
+  const recognitionRef = useRef<any>(null);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const resolveRef = useRef<((text: string | null) => void) | null>(null);
 
   const startRecording = useCallback(async () => {
-    try {
-      if (!recorderRef.current) {
-        recorderRef.current = new AudioRecorder();
-      }
+    const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognitionAPI) {
+      toast.error("Your browser doesn't support voice recognition. Please use Chrome or Edge.");
+      return;
+    }
 
-      await recorderRef.current.start();
+    try {
+      const recognition = new SpeechRecognitionAPI();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = RECOGNITION_LANG_MAP[language] || "en-US";
+
+      recognition.onresult = (event: any) => {
+        const text = event.results[0]?.[0]?.transcript || "";
+        resolveRef.current?.(text.trim() || null);
+        resolveRef.current = null;
+      };
+
+      recognition.onerror = (event: any) => {
+        console.warn("Speech recognition error:", event.error);
+        if (event.error === "not-allowed") {
+          toast.error("Microphone access denied. Please allow microphone access.");
+        }
+        resolveRef.current?.(null);
+        resolveRef.current = null;
+        setState("idle");
+      };
+
+      recognition.onend = () => {
+        if (resolveRef.current) {
+          resolveRef.current(null);
+          resolveRef.current = null;
+        }
+        setState("idle");
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
       setState("recording");
     } catch (error) {
       console.error("Failed to start recording:", error);
       toast.error("Could not access microphone. Please check permissions.");
     }
-  }, []);
+  }, [language]);
 
   const stopRecording = useCallback(async (): Promise<string | null> => {
-    if (!recorderRef.current?.isRecording()) {
+    if (!recognitionRef.current || state !== "recording") {
       return null;
     }
 
-    try {
-      setState("processing");
-      const audioBlob = await recorderRef.current.stop();
+    setState("processing");
 
-      const result = await speechToText(audioBlob, language);
-      setState("idle");
-
-      return result.text;
-    } catch (error) {
-      console.error("Speech-to-text failed:", error);
-      toast.error("Could not transcribe audio. Please try again.");
-      setState("idle");
-      return null;
-    }
-  }, [language]);
+    return new Promise<string | null>((resolve) => {
+      resolveRef.current = resolve;
+      recognitionRef.current.stop();
+    });
+  }, [state]);
 
   const speak = useCallback(
     async (text: string): Promise<void> => {
