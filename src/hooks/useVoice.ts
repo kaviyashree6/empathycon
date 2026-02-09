@@ -1,11 +1,9 @@
 import { useState, useCallback, useRef } from "react";
 import {
   AudioRecorder,
-  textToSpeech,
+  browserTextToSpeech,
   speechToText,
-  playAudioBlob,
   stopBrowserSpeech,
-  isElevenLabsQuotaExhausted,
   LanguageCode,
 } from "@/lib/voice-api";
 import { toast } from "sonner";
@@ -59,20 +57,10 @@ export function useVoice(language: LanguageCode = "en") {
 
       try {
         setState("speaking");
-
-        const result = await textToSpeech(text, language);
-
-        // If browser fallback was used, audio already played via speechSynthesis
-        if (result !== "browser-fallback") {
-          await playAudioBlob(result);
-        } else if (isElevenLabsQuotaExhausted()) {
-          toast.info("Using browser voice (ElevenLabs quota exceeded)", { id: "tts-fallback", duration: 3000 });
-        }
-
+        await browserTextToSpeech(text, language);
         setState("idle");
       } catch (error) {
         console.error("Text-to-speech failed:", error);
-        // Don't show error toast if we can try browser fallback
         toast.error("Voice playback unavailable.");
         setState("idle");
       }
