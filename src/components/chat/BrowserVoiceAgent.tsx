@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useBrowserVoiceChat } from "@/hooks/useBrowserVoiceChat";
 import { LanguageCode } from "@/lib/voice-api";
+import { VoiceWaveform } from "./VoiceWaveform";
 
 type BrowserVoiceAgentProps = {
   language?: LanguageCode;
@@ -81,46 +82,59 @@ function BrowserVoiceAgentInner({ language = "en", onClose }: BrowserVoiceAgentP
           </Badge>
         </div>
 
-        {/* Active call indicators */}
+        {/* Waveform visualizer */}
         {isConnected && (
-          <div className="flex items-center justify-center gap-4 py-4">
-            <div
-              className={cn(
-                "flex items-center gap-2 px-4 py-2 rounded-full transition-all",
-                state === "listening"
-                  ? "bg-primary/10 text-primary"
-                  : "bg-muted text-muted-foreground"
-              )}
-            >
-              <Mic
+          <div className="flex items-center justify-center gap-6 py-4">
+            <div className="flex flex-col items-center gap-1">
+              <div
                 className={cn(
-                  "w-4 h-4",
-                  state === "listening" && "animate-pulse"
+                  "flex items-center justify-center w-16 h-16 rounded-full transition-all",
+                  state === "listening"
+                    ? "bg-primary/10 ring-2 ring-primary/30"
+                    : "bg-muted"
                 )}
-              />
-              <span className="text-sm">You</span>
-            </div>
-            <div
-              className={cn(
-                "flex items-center gap-2 px-4 py-2 rounded-full transition-all",
-                state === "speaking"
-                  ? "bg-accent/20 text-accent"
-                  : state === "thinking"
-                  ? "bg-warning/20 text-warning"
-                  : "bg-muted text-muted-foreground"
-              )}
-            >
-              {state === "thinking" ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Volume2
+              >
+                <Mic
                   className={cn(
-                    "w-4 h-4",
-                    state === "speaking" && "animate-pulse"
+                    "w-5 h-5",
+                    state === "listening" ? "text-primary" : "text-muted-foreground"
                   )}
                 />
-              )}
-              <span className="text-sm">AI</span>
+              </div>
+              <VoiceWaveform
+                isActive={state === "listening"}
+                variant="listening"
+              />
+              <span className="text-xs text-muted-foreground">You</span>
+            </div>
+
+            <div className="flex flex-col items-center gap-1">
+              <div
+                className={cn(
+                  "flex items-center justify-center w-16 h-16 rounded-full transition-all",
+                  state === "speaking"
+                    ? "bg-accent/15 ring-2 ring-accent/30"
+                    : state === "thinking"
+                    ? "bg-warning/15 ring-2 ring-warning/30"
+                    : "bg-muted"
+                )}
+              >
+                {state === "thinking" ? (
+                  <Loader2 className="w-5 h-5 text-warning animate-spin" />
+                ) : (
+                  <Volume2
+                    className={cn(
+                      "w-5 h-5",
+                      state === "speaking" ? "text-accent" : "text-muted-foreground"
+                    )}
+                  />
+                )}
+              </div>
+              <VoiceWaveform
+                isActive={state === "speaking" || state === "thinking"}
+                variant={state === "thinking" ? "thinking" : "speaking"}
+              />
+              <span className="text-xs text-muted-foreground">AI</span>
             </div>
           </div>
         )}
