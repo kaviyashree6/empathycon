@@ -14,6 +14,11 @@ import { LanguageSelector } from "@/components/chat/LanguageSelector";
 import { ChatHistory } from "@/components/chat/ChatHistory";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { MessageBubble, TypingIndicator } from "@/components/chat/MessageBubble";
+import { CrisisResourcePanel } from "@/components/crisis/CrisisResourcePanel";
+import { LiveEmotionMeter } from "@/components/voice/LiveEmotionMeter";
+import { EmotionTimeline } from "@/components/timeline/EmotionTimeline";
+import { CopingStrategyCard } from "@/components/coping/CopingStrategyCard";
+import { RiskScoreIndicator } from "@/components/crisis/RiskScoreIndicator";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,6 +36,8 @@ const ChatPortal = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [voiceCallOpen, setVoiceCallOpen] = useState(false);
   const [language, setLanguage] = useState<LanguageCode>("en");
+  const [showCrisisPanel, setShowCrisisPanel] = useState(false);
+  const [crisisRiskLevel, setCrisisRiskLevel] = useState<"high" | "medium">("medium");
 
   const { messages, isTyping, lastEmotion, sendMessage, setMessages } = useChat();
   const {
@@ -54,6 +61,17 @@ const ChatPortal = () => {
     speak,
     toggleVoice,
   } = useVoice(language);
+
+  // Show crisis panel when high/medium risk detected
+  useEffect(() => {
+    if (lastEmotion?.risk_level === "high") {
+      setCrisisRiskLevel("high");
+      setShowCrisisPanel(true);
+    } else if (lastEmotion?.risk_level === "medium" && lastEmotion.intensity >= 7) {
+      setCrisisRiskLevel("medium");
+      setShowCrisisPanel(true);
+    }
+  }, [lastEmotion]);
 
   // Create session on first load
   useEffect(() => {
@@ -89,22 +107,17 @@ const ChatPortal = () => {
     const userMessage = input.trim();
     setInput("");
 
-    // Save user message to history
     if (currentSessionId) {
       saveMessage(currentSessionId, { role: "user", content: userMessage });
     }
 
     await sendMessage(userMessage);
-
-    // Save AI response after it completes
-    // This is handled in the useChat hook callback
   }, [input, isTyping, currentSessionId, saveMessage, sendMessage]);
 
   const handleVoiceInput = useCallback(async () => {
     const text = await stopRecording();
     if (text) {
       setInput(text);
-      // Auto-send after voice input
       setTimeout(() => {
         if (text.trim()) {
           handleSend();
@@ -116,6 +129,7 @@ const ChatPortal = () => {
   const handleNewSession = useCallback(async () => {
     const newSessionId = await createSession(language);
     if (newSessionId) {
+      setShowCrisisPanel(false);
       setMessages([
         {
           id: "welcome",
@@ -131,6 +145,7 @@ const ChatPortal = () => {
   const handleSelectSession = useCallback(
     async (sessionId: string) => {
       setCurrentSessionId(sessionId);
+      setShowCrisisPanel(false);
       const loadedMessages = await loadMessages(sessionId);
       if (loadedMessages.length > 0) {
         setMessages(loadedMessages);
@@ -165,7 +180,8 @@ const ChatPortal = () => {
       `}
       >
         <ChatSidebar 
-          lastEmotion={lastEmotion} 
+          lastEmotion={lastEmotion}
+          messages={messages}
           onClose={() => setSidebarOpen(false)} 
           onStartVoiceCall={() => setVoiceCallOpen(true)}
         />
@@ -197,6 +213,8 @@ const ChatPortal = () => {
 
           {/* Center controls */}
           <div className="flex items-center gap-2">
+            {/* Live Emotion Meter */}
+            <LiveEmotionMeter emotion={lastEmotion} isRecording={isRecording} className="hidden md:flex" />
             <LanguageSelector value={language} onChange={setLanguage} />
             {user && (
               <ChatHistory
@@ -212,14 +230,14 @@ const ChatPortal = () => {
 
           {/* Right controls */}
           <div className="flex items-center gap-2">
-            {/* AI Status */}
-            <div className="flex items-center gap-2 text-xs text-muted-foreground mr-2 hidden sm:flex">
-              <div className="w-2 h-2 rounded-full bg-success animate-pulse" />
-              <span>AI Connected</span>
-            </div>
+            {/* Risk Score */}
+            <RiskScoreIndicator emotion={lastEmotion} className="hidden sm:flex" />
 
             {/* SOS Button */}
-            <Button variant="sos" size="sm" className="gap-2 hidden sm:flex">
+            <Button variant="sos" size="sm" className="gap-2 hidden sm:flex" onClick={() => {
+              setCrisisRiskLevel("high");
+              setShowCrisisPanel(true);
+            }}>
               <Heart className="w-4 h-4" />
               SOS
             </Button>
@@ -255,6 +273,17 @@ const ChatPortal = () => {
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {/* Crisis Resource Panel */}
+          {showCrisisPanel && (
+            <CrisisResourcePanel
+              riskLevel={crisisRiskLevel}
+              onDismiss={() => setShowCrisisPanel(false)}
+            />
+          )}
+
+          {/* Mobile Emotion Meter */}
+          <LiveEmotionMeter emotion={lastEmotion} isRecording={isRecording} className="md:hidden" />
+
           {messages.map((message) => (
             <MessageBubble
               key={message.id}
@@ -266,6 +295,11 @@ const ChatPortal = () => {
           ))}
 
           {isTyping && <TypingIndicator />}
+
+          {/* Coping Strategy Card — show after negative messages */}
+          {!isTyping && lastEmotion && (lastEmotion.emotion === "negative" || lastEmotion.risk_level !== "low") && (
+            <CopingStrategyCard emotion={lastEmotion} />
+          )}
         </div>
 
         {/* Input Area */}
