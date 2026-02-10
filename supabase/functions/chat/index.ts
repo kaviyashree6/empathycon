@@ -19,11 +19,27 @@ const SYSTEM_PROMPT = `You are EmpathyConnect, a compassionate and safe AI menta
 
 Remember: You are a supportive companion, not a replacement for professional therapy. Be present, be kind, and be safe.`;
 
+// Crisis keyword detection for early prediction
+const CRISIS_KEYWORDS = [
+  "hopeless", "no point", "give up", "can't go on", "end it", "suicide",
+  "kill myself", "self-harm", "cutting", "die", "death", "alone forever",
+  "tired of life", "no reason to live", "worthless", "burden", "nobody cares",
+  "want to disappear", "can't take it", "better off without me",
+];
+
+function detectCrisisKeywords(message: string): { detected: boolean; keywords: string[] } {
+  const lower = message.toLowerCase();
+  const found = CRISIS_KEYWORDS.filter((kw) => lower.includes(kw));
+  return { detected: found.length > 0, keywords: found };
+}
+
 const EMOTION_ANALYSIS_PROMPT = `Analyze the emotional content of the user's message and categorize it. Return a JSON object with:
 - "emotion": one of "positive", "negative", or "neutral"
 - "intensity": a number from 1-10 indicating emotional intensity
-- "risk_level": "low", "medium", or "high" based on crisis indicators
-- "primary_feeling": the main emotion detected (e.g., "anxiety", "sadness", "joy", "anger", "fear", "hope")
+- "risk_level": "low", "medium", or "high" based on crisis indicators (suicidal ideation, self-harm, severe distress = high; anxiety, sadness, anger = medium; neutral/positive = low)
+- "primary_feeling": the main emotion detected (e.g., "anxiety", "sadness", "joy", "anger", "fear", "hope", "loneliness", "hopelessness", "frustration", "gratitude", "calm")
+- "crisis_keywords_detected": list of any crisis-related words found
+- "recommended_intervention": one of "none", "coping_strategy", "crisis_resources", "immediate_escalation"
 
 Only return the JSON object, no other text.
 
@@ -132,10 +148,9 @@ serve(async (req) => {
     const emotionData = await emotionResponse.json();
     console.log("Emotion response:", emotionData);
     
-    let emotionAnalysis = { emotion: "neutral", intensity: 5, risk_level: "low", primary_feeling: "neutral" };
+    let emotionAnalysis: any = { emotion: "neutral", intensity: 5, risk_level: "low", primary_feeling: "neutral", recommended_intervention: "none" };
     try {
       const emotionContent = emotionData.choices?.[0]?.message?.content || "";
-      // Extract JSON from response (handle markdown code blocks)
       const jsonMatch = emotionContent.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         emotionAnalysis = JSON.parse(jsonMatch[0]);
@@ -143,6 +158,21 @@ serve(async (req) => {
       console.log("Parsed emotion analysis:", emotionAnalysis);
     } catch (e) {
       console.error("Failed to parse emotion analysis:", e);
+    }
+
+    // Enhanced crisis detection: combine AI analysis + keyword detection
+    const keywordResult = detectCrisisKeywords(message);
+    if (keywordResult.detected) {
+      console.log("Crisis keywords detected:", keywordResult.keywords);
+      // Escalate risk level if keywords found
+      if (emotionAnalysis.risk_level === "low") {
+        emotionAnalysis.risk_level = "medium";
+      }
+      if (keywordResult.keywords.some(kw => ["suicide", "kill myself", "self-harm", "end it", "die"].includes(kw))) {
+        emotionAnalysis.risk_level = "high";
+        emotionAnalysis.recommended_intervention = "immediate_escalation";
+      }
+      emotionAnalysis.crisis_keywords_detected = keywordResult.keywords;
     }
 
     // Insert crisis alert if risk level is high or medium

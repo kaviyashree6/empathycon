@@ -1,10 +1,12 @@
-import { Heart, BarChart3, BookOpen, Wind, Phone, Settings, Sparkles } from "lucide-react";
+import { Heart, BarChart3, BookOpen, Wind, Phone, Settings, Sparkles, Brain } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { EmotionAnalysis } from "@/lib/chat-api";
 import { Smile, Frown, Meh, X } from "lucide-react";
+import { EmotionTimeline } from "@/components/timeline/EmotionTimeline";
+import { Message } from "@/hooks/useChat";
 
 const emotionIcons = {
   positive: Smile,
@@ -20,21 +22,19 @@ const emotionColors = {
 
 type ChatSidebarProps = {
   lastEmotion: EmotionAnalysis | null;
+  messages: Message[];
   onClose: () => void;
   onStartVoiceCall?: () => void;
 };
 
-export function ChatSidebar({ lastEmotion, onClose, onStartVoiceCall }: ChatSidebarProps) {
+export function ChatSidebar({ lastEmotion, messages, onClose, onStartVoiceCall }: ChatSidebarProps) {
   const navigate = useNavigate();
   const EmotionIcon = lastEmotion
     ? emotionIcons[lastEmotion.emotion]
     : emotionIcons.neutral;
 
-  // Simulated weekly mood data
-  const moodData = [60, 75, 50, 80, 65, 90, 70];
-
   return (
-    <div className="h-full flex flex-col p-4">
+    <div className="h-full flex flex-col p-4 overflow-y-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <Link to="/" className="flex items-center gap-2">
@@ -96,28 +96,8 @@ export function ChatSidebar({ lastEmotion, onClose, onStartVoiceCall }: ChatSide
         </Card>
       )}
 
-      {/* Mood Graph Card */}
-      <Card variant="calm" className="mb-4">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <BarChart3 className="w-4 h-4 text-primary" />
-            Weekly Mood
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-end justify-between h-20 gap-1">
-            {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day, i) => (
-              <div key={day} className="flex-1 flex flex-col items-center gap-1">
-                <div
-                  className="w-full rounded-t bg-primary/30 hover:bg-primary/50 transition-colors"
-                  style={{ height: `${moodData[i]}%` }}
-                />
-                <span className="text-[10px] text-muted-foreground">{day}</span>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      {/* Emotion Timeline */}
+      <EmotionTimeline messages={messages} className="mb-4" />
 
       {/* Quick Actions */}
       <div className="space-y-2 mb-4">
@@ -127,6 +107,10 @@ export function ChatSidebar({ lastEmotion, onClose, onStartVoiceCall }: ChatSide
             Voice Call
           </Button>
         )}
+        <Button variant="calm" className="w-full justify-start gap-3" onClick={() => navigate("/emotional-dashboard")}>
+          <Brain className="w-4 h-4" />
+          Emotional Twin
+        </Button>
         <Button variant="calm" className="w-full justify-start gap-3" onClick={() => navigate("/wellness")}>
           <Sparkles className="w-4 h-4" />
           Wellness Hub
