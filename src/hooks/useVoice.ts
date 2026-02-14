@@ -37,22 +37,35 @@ export function useVoice(language: LanguageCode = "en") {
       return;
     }
 
+    // Request microphone permission first
+    try {
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      toast.error("Microphone access is required. Please allow microphone access.");
+      return;
+    }
+
     try {
       const recognition = new SpeechRecognitionAPI();
       recognition.continuous = false;
-      recognition.interimResults = false;
+      recognition.interimResults = true;
       recognition.lang = RECOGNITION_LANG_MAP[language] || "en-US";
 
       recognition.onresult = (event: any) => {
-        const text = event.results[0]?.[0]?.transcript || "";
-        resolveRef.current?.(text.trim() || null);
-        resolveRef.current = null;
+        const lastResult = event.results[event.results.length - 1];
+        if (lastResult.isFinal) {
+          const text = lastResult[0]?.transcript || "";
+          resolveRef.current?.(text.trim() || null);
+          resolveRef.current = null;
+        }
       };
 
       recognition.onerror = (event: any) => {
         console.warn("Speech recognition error:", event.error);
         if (event.error === "not-allowed") {
           toast.error("Microphone access denied. Please allow microphone access.");
+        } else if (event.error === "no-speech") {
+          toast.info("No speech detected. Please try again.");
         }
         resolveRef.current?.(null);
         resolveRef.current = null;
