@@ -6,31 +6,19 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const SYSTEM_PROMPT = `You are EmpathyConnect, a compassionate and safe AI mental health assistant. Your role is to:
+const SYSTEM_PROMPT = `You are EmpathyConnect, a compassionate and safe AI mental health assistant.
 
+Your rules:
 1. ALWAYS validate the user's emotions first before offering any suggestions
 2. Provide short, supportive, and empathetic responses (2-4 sentences typically)
-3. NEVER diagnose mental health conditions
-4. NEVER prescribe medications or medical treatments
-5. Use warm, gentle language that makes users feel heard and understood
-6. When detecting signs of crisis (suicidal thoughts, self-harm, severe distress), gently acknowledge their pain and encourage them to reach out to crisis resources
-7. Ask open-ended follow-up questions to encourage sharing
-8. Focus on emotional support, not problem-solving unless explicitly asked
-
-IMPORTANT: You MUST start EVERY response with an emotion analysis JSON block on the very first line, wrapped in <emotion> tags, like this:
-<emotion>{"emotion":"positive","intensity":3,"risk_level":"low","primary_feeling":"hopeful"}</emotion>
-
-The JSON must have:
-- "emotion": one of "positive", "negative", or "neutral"
-- "intensity": 1-10
-- "risk_level": "low", "medium", or "high"
-- "primary_feeling": the main emotion (e.g. "anxiety", "sadness", "joy", "hope", "loneliness")
-
-After the emotion tag, write your empathetic response normally.
+3. NEVER diagnose mental health conditions or prescribe medications
+4. Use warm, gentle language that makes users feel heard and understood
+5. When detecting signs of crisis, gently acknowledge their pain and encourage reaching out to crisis resources
+6. Ask open-ended follow-up questions to encourage sharing
+7. Focus on emotional support, not problem-solving unless explicitly asked
 
 Remember: You are a supportive companion, not a replacement for professional therapy. Be present, be kind, and be safe.`;
 
-// Crisis keyword detection for early prediction
 const CRISIS_KEYWORDS = [
   "hopeless", "no point", "give up", "can't go on", "end it", "suicide",
   "kill myself", "self-harm", "cutting", "die", "death", "alone forever",
@@ -44,8 +32,56 @@ function detectCrisisKeywords(message: string): { detected: boolean; keywords: s
   return { detected: found.length > 0, keywords: found };
 }
 
+// deno-lint-ignore no-explicit-any
+type SupabaseClientType = any;
+
+async function insertCrisisAlert(
+  supabase: SupabaseClientType,
+  sessionId: string,
+  userId: string | null,
+  riskLevel: string,
+  primaryFeeling: string,
+  messagePreview: string
+) {
+  try {
+    const pseudoId = `User_${sessionId.slice(0, 4).toUpperCase()}`;
+    await supabase.from("crisis_alerts").insert({
+      session_id: sessionId,
+      message_id: null,
+      user_id: userId,
+      pseudo_user_id: pseudoId,
+      risk_level: riskLevel,
+      primary_feeling: primaryFeeling,
+      message_preview: messagePreview.slice(0, 200),
+      status: "pending",
+    });
+  } catch (e) {
+    console.error("Error inserting crisis alert:", e);
+  }
+}
+
+const EMOTION_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "report_emotion",
+      description: "Report the detected emotion from the user's message before responding.",
+      parameters: {
+        type: "object",
+        properties: {
+          emotion: { type: "string", enum: ["positive", "negative", "neutral"] },
+          intensity: { type: "number", description: "Emotional intensity from 1 to 10" },
+          risk_level: { type: "string", enum: ["low", "medium", "high"] },
+          primary_feeling: { type: "string", description: "The main emotion word, e.g. anxiety, sadness, joy, hope, loneliness, anger, fear, calm" },
+        },
+        required: ["emotion", "intensity", "risk_level", "primary_feeling"],
+        additionalProperties: false,
+      },
+    },
+  },
+];
+
 serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -55,19 +91,15 @@ serve(async (req) => {
     console.log("Received message:", message);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
-    }
+    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Keyword-based crisis detection (no extra API call)
     const keywordResult = detectCrisisKeywords(message);
 
-    // Build conversation messages - single call handles both emotion + response
-    const messages = [
+    const chatMessages = [
       { role: "system", content: SYSTEM_PROMPT },
       ...conversationHistory.map((msg: { role: string; content: string }) => ({
         role: msg.role,
@@ -77,21 +109,84 @@ serve(async (req) => {
     ];
 
     if (keywordResult.detected && keywordResult.keywords.some(kw => ["suicide", "kill myself", "self-harm", "end it", "die"].includes(kw))) {
-      messages.push({
+      chatMessages.push({
         role: "system",
-        content: "IMPORTANT: The user may be in crisis. Be extra gentle, validate their feelings, and gently encourage them to reach out to a crisis helpline or professional. Set risk_level to 'high' in your emotion tag.",
+        content: "IMPORTANT: The user may be in crisis. Be extra gentle, validate their feelings, and encourage them to reach out to a crisis helpline.",
       });
     }
 
-    const chatResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const headers = {
+      Authorization: `Bearer ${LOVABLE_API_KEY}`,
+      "Content-Type": "application/json",
+    };
+    const gatewayUrl = "https://ai.gateway.lovable.dev/v1/chat/completions";
+
+    // Step 1: Get emotion via tool call (non-streaming, fast)
+    console.log("Analyzing emotion...");
+    let emotionAnalysis = { emotion: "neutral", intensity: 5, risk_level: "low", primary_feeling: "neutral" };
+
+    try {
+      const emotionResponse = await fetch(gatewayUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash-lite",
+          messages: [
+            { role: "system", content: "Analyze the user's emotional state from their message. Use the report_emotion tool to report your findings." },
+            { role: "user", content: message },
+          ],
+          tools: EMOTION_TOOLS,
+          tool_choice: { type: "function", function: { name: "report_emotion" } },
+          temperature: 0.3,
+        }),
+      });
+
+      if (emotionResponse.ok) {
+        const emotionData = await emotionResponse.json();
+        const toolCall = emotionData.choices?.[0]?.message?.tool_calls?.[0];
+        if (toolCall?.function?.arguments) {
+          try {
+            emotionAnalysis = JSON.parse(toolCall.function.arguments);
+            console.log("Emotion detected via tool:", JSON.stringify(emotionAnalysis));
+          } catch { console.warn("Failed to parse emotion tool args"); }
+        }
+      } else {
+        console.warn("Emotion analysis failed:", emotionResponse.status);
+      }
+    } catch (e) {
+      console.warn("Emotion analysis error (using defaults):", e);
+    }
+
+    // Enhance with keyword detection
+    if (keywordResult.detected) {
+      if (emotionAnalysis.risk_level === "low") emotionAnalysis.risk_level = "medium";
+      if (keywordResult.keywords.some((kw: string) => ["suicide", "kill myself", "self-harm", "end it", "die"].includes(kw))) {
+        emotionAnalysis.risk_level = "high";
+      }
+    }
+
+    // Insert crisis alert if needed
+    if (sessionId && (emotionAnalysis.risk_level === "high" || emotionAnalysis.risk_level === "medium")) {
+      insertCrisisAlert(supabase, sessionId, userId || null, emotionAnalysis.risk_level, emotionAnalysis.primary_feeling, message);
+    }
+
+    // Step 2: Generate empathetic response (streaming)
+    console.log("Generating response...");
+
+    // Add emotion context for better response
+    if (emotionAnalysis.risk_level === "high") {
+      chatMessages.push({
+        role: "system",
+        content: "The user is showing high emotional distress. Be extra gentle and suggest crisis resources.",
+      });
+    }
+
+    const chatResponse = await fetch(gatewayUrl, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify({
         model: "google/gemini-3-flash-preview",
-        messages,
+        messages: chatMessages,
         stream: true,
         temperature: 0.7,
       }),
@@ -99,7 +194,7 @@ serve(async (req) => {
 
     if (!chatResponse.ok) {
       const errorText = await chatResponse.text();
-      console.error("Chat response failed:", chatResponse.status, errorText);
+      console.error("Chat failed:", chatResponse.status, errorText);
       if (chatResponse.status === 429) {
         return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again in a moment." }), {
           status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -113,92 +208,36 @@ serve(async (req) => {
       throw new Error(`Chat failed: ${chatResponse.status}`);
     }
 
-    // Transform stream: extract <emotion> tag, then forward deltas
-    const reader = chatResponse.body?.getReader();
+    // Stream response with emotion prepended
     const encoder = new TextEncoder();
-    const decoder = new TextDecoder();
-    let emotionSent = false;
-    let emotionBuffer = "";
-    let parsingEmotion = true;
+    const emotionEvent = `data: ${JSON.stringify({ type: "emotion", emotion: emotionAnalysis })}\n\n`;
+    const upstreamReader = chatResponse.body?.getReader();
 
     const stream = new ReadableStream({
       async start(controller) {
-        if (!reader) { controller.close(); return; }
+        // Send emotion first
+        controller.enqueue(encoder.encode(emotionEvent));
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split("\n");
-
-          for (const line of lines) {
-            if (!line.startsWith("data: ") || line.trim() === "") continue;
-            const jsonStr = line.slice(6).trim();
-            if (jsonStr === "[DONE]") continue;
-
-            try {
-              const parsed = JSON.parse(jsonStr);
-              const content = parsed.choices?.[0]?.delta?.content as string | undefined;
-              if (!content) continue;
-
-              if (parsingEmotion) {
-                emotionBuffer += content;
-                const closeTag = "</emotion>";
-                const closeIdx = emotionBuffer.indexOf(closeTag);
-                if (closeIdx !== -1) {
-                  parsingEmotion = false;
-                  // Extract emotion JSON
-                  const openTag = "<emotion>";
-                  const openIdx = emotionBuffer.indexOf(openTag);
-                  if (openIdx !== -1) {
-                    const jsonPart = emotionBuffer.slice(openIdx + openTag.length, closeIdx);
-                    try {
-                      let emotionAnalysis = JSON.parse(jsonPart);
-                      // Enhance with keyword detection
-                      if (keywordResult.detected) {
-                        if (emotionAnalysis.risk_level === "low") emotionAnalysis.risk_level = "medium";
-                        if (keywordResult.keywords.some((kw: string) => ["suicide", "kill myself", "self-harm", "end it", "die"].includes(kw))) {
-                          emotionAnalysis.risk_level = "high";
-                        }
-                      }
-                      const emotionEvent = `data: ${JSON.stringify({ type: "emotion", emotion: emotionAnalysis })}\n\n`;
-                      controller.enqueue(encoder.encode(emotionEvent));
-                      emotionSent = true;
-
-                      // Insert crisis alert if needed
-                      if (sessionId && (emotionAnalysis.risk_level === "high" || emotionAnalysis.risk_level === "medium")) {
-                        insertCrisisAlert(supabase, sessionId, null, userId || null, emotionAnalysis.risk_level, emotionAnalysis.primary_feeling, message);
-                      }
-                    } catch { /* emotion parse failed, skip */ }
-                  }
-                  // Forward any text after the close tag
-                  const remainder = emotionBuffer.slice(closeIdx + closeTag.length).trim();
-                  if (remainder) {
-                    const evt = `data: ${JSON.stringify({ choices: [{ delta: { content: remainder } }] })}\n\n`;
-                    controller.enqueue(encoder.encode(evt));
-                  }
-                }
-              } else {
-                // Forward normally
-                controller.enqueue(encoder.encode(line + "\n\n"));
-              }
-            } catch { /* skip unparseable */ }
+        // Forward upstream stream
+        if (upstreamReader) {
+          try {
+            while (true) {
+              const { done, value } = await upstreamReader.read();
+              if (done) break;
+              controller.enqueue(value);
+            }
+          } catch (e) {
+            console.error("Stream read error:", e);
           }
         }
 
-        if (!emotionSent) {
-          // Fallback emotion
-          const fallback = { emotion: "neutral", intensity: 5, risk_level: keywordResult.detected ? "medium" : "low", primary_feeling: "neutral" };
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "emotion", emotion: fallback })}\n\n`));
-        }
-        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         controller.close();
       },
     });
+
     return new Response(stream, {
-      headers: { 
-        ...corsHeaders, 
+      headers: {
+        ...corsHeaders,
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
       },
@@ -208,10 +247,7 @@ serve(async (req) => {
     console.error("Chat error:", error);
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error occurred" }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });
