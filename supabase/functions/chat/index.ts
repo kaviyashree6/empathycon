@@ -30,6 +30,7 @@ Your rules:
 5. When detecting signs of crisis, gently acknowledge their pain and encourage reaching out to crisis resources
 6. Ask open-ended follow-up questions to encourage sharing
 7. Focus on emotional support, not problem-solving unless explicitly asked
+8. CRITICAL: You MUST respond in the SAME language the user speaks. If a language is specified, respond ONLY in that language. Never switch to English unless the user writes in English.
 
 Remember: You are a supportive companion, not a replacement for professional therapy. Be present, be kind, and be safe.`;
 
@@ -101,7 +102,7 @@ serve(async (req) => {
   }
 
   try {
-    const { message, conversationHistory = [], sessionId, userId } = await req.json();
+    const { message, conversationHistory = [], sessionId, userId, language } = await req.json();
     console.log("Received message:", message);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
@@ -113,8 +114,21 @@ serve(async (req) => {
 
     const keywordResult = detectCrisisKeywords(message);
 
+    // Language mapping for AI responses
+    const LANG_NAMES: Record<string, string> = {
+      en: "English", "en-gb": "English", "en-au": "English",
+      es: "Spanish", fr: "French", de: "German", pt: "Portuguese",
+      it: "Italian", ja: "Japanese", ko: "Korean", zh: "Chinese",
+      hi: "Hindi", ar: "Arabic", ru: "Russian", nl: "Dutch", pl: "Polish",
+      ta: "Tamil",
+    };
+
+    const langInstruction = language && language !== "en"
+      ? `\n\nIMPORTANT: The user's selected language is ${LANG_NAMES[language] || language}. You MUST respond ONLY in ${LANG_NAMES[language] || language}. Do NOT respond in English.`
+      : "";
+
     const chatMessages = [
-      { role: "system", content: SYSTEM_PROMPT },
+      { role: "system", content: SYSTEM_PROMPT + langInstruction },
       ...conversationHistory.map((msg: { role: string; content: string }) => ({
         role: msg.role,
         content: msg.content,

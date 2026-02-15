@@ -1,8 +1,8 @@
 import { memo } from "react";
-import { Phone, PhoneOff, Loader2, Mic, Volume2, AlertCircle, Shield, UserCheck, Activity } from "lucide-react";
+import { Phone, PhoneOff, Loader2, Mic, Volume2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { useBrowserVoiceChat } from "@/hooks/useBrowserVoiceChat";
 import { LanguageCode } from "@/lib/voice-api";
@@ -13,10 +13,6 @@ type BrowserVoiceAgentProps = {
   onClose?: () => void;
 };
 
-const EMOTION_EMOJI: Record<string, string> = {
-  positive: "😊", negative: "😔", neutral: "😐",
-};
-
 function BrowserVoiceAgentInner({ language = "en", onClose }: BrowserVoiceAgentProps) {
   const {
     state,
@@ -24,8 +20,6 @@ function BrowserVoiceAgentInner({ language = "en", onClose }: BrowserVoiceAgentP
     isSupported,
     transcript,
     partialText,
-    currentEmotion,
-    isEscalated,
     startCall,
     endCall,
   } = useBrowserVoiceChat(language);
@@ -55,68 +49,12 @@ function BrowserVoiceAgentInner({ language = "en", onClose }: BrowserVoiceAgentP
         <CardTitle className="flex items-center justify-center gap-2 text-lg">
           <Phone className="w-5 h-5 text-primary" />
           Voice Chat
-          {isEscalated && (
-            <Badge variant="destructive" className="text-[10px] gap-1 animate-pulse">
-              <Shield className="w-3 h-3" />
-              Escalated
-            </Badge>
-          )}
         </CardTitle>
         <p className="text-xs text-muted-foreground">
-          {isEscalated ? "A therapist has been notified • AI + Human support active" : "AI-powered voice support with emotion detection"}
+          Live AI voice conversation
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Hybrid Support Indicator */}
-        {isConnected && (
-          <div className={cn(
-            "flex items-center justify-center gap-3 px-3 py-2 rounded-lg text-xs",
-            isEscalated ? "bg-destructive/10 text-destructive" : "bg-primary/5 text-primary"
-          )}>
-            <div className="flex items-center gap-1.5">
-              <Activity className="w-3.5 h-3.5" />
-              <span>AI Active</span>
-            </div>
-            <span className="text-muted-foreground">•</span>
-            <div className="flex items-center gap-1.5">
-              <UserCheck className={cn("w-3.5 h-3.5", isEscalated ? "text-destructive" : "text-muted-foreground")} />
-              <span className={isEscalated ? "font-medium" : "text-muted-foreground"}>
-                {isEscalated ? "Therapist Notified" : "Human Standby"}
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* Live Emotion Display */}
-        {isConnected && currentEmotion && (
-          <div className="flex items-center justify-between px-3 py-2 bg-muted/50 rounded-lg">
-            <div className="flex items-center gap-2">
-              <span className="text-lg">{EMOTION_EMOJI[currentEmotion.emotion] || "😐"}</span>
-              <div>
-                <p className="text-xs font-medium capitalize">{currentEmotion.primary_feeling}</p>
-                <p className="text-[10px] text-muted-foreground">
-                  Intensity: {currentEmotion.intensity}/10
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <Badge
-                variant={currentEmotion.risk_level === "high" ? "destructive" : currentEmotion.risk_level === "medium" ? "warning" : "secondary"}
-                className="text-[10px]"
-              >
-                {currentEmotion.risk_level} risk
-              </Badge>
-              <div className="flex items-center gap-0.5">
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
-                </span>
-                <span className="text-[10px] text-success font-medium">LIVE</span>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Status indicator */}
         <div className="flex items-center justify-center gap-2">
           <div
@@ -132,7 +70,7 @@ function BrowserVoiceAgentInner({ language = "en", onClose }: BrowserVoiceAgentP
             )}
           />
           <Badge variant={isConnected ? "default" : "outline"}>
-            {state === "listening" ? "Listening..." : state === "thinking" ? "Analyzing & Thinking..." : state === "speaking" ? "Speaking..." : "Ready to call"}
+            {state === "listening" ? "Listening..." : state === "thinking" ? "Thinking..." : state === "speaking" ? "Speaking..." : "Ready to call"}
           </Badge>
         </div>
 
@@ -183,16 +121,11 @@ function BrowserVoiceAgentInner({ language = "en", onClose }: BrowserVoiceAgentP
         {transcript.length > 0 && (
           <div className="max-h-48 overflow-y-auto p-3 bg-muted/50 rounded-lg text-sm space-y-2">
             {transcript.slice(-8).map((entry, i) => (
-              <div key={i} className="space-y-0.5">
+              <div key={i}>
                 <p className={cn(entry.role === "user" ? "text-primary" : "text-muted-foreground")}>
                   <span className="font-medium">{entry.role === "user" ? "You: " : "AI: "}</span>
                   {entry.text}
                 </p>
-                {entry.speechPatterns && entry.speechPatterns.emotionalCues.length > 0 && (
-                  <p className="text-[10px] text-muted-foreground/70 pl-4">
-                    🔍 {entry.speechPatterns.emotionalCues.join(" • ")}
-                  </p>
-                )}
               </div>
             ))}
           </div>
@@ -214,10 +147,7 @@ function BrowserVoiceAgentInner({ language = "en", onClose }: BrowserVoiceAgentP
         </div>
 
         <p className="text-xs text-center text-muted-foreground">
-          {isEscalated
-            ? "🛡️ AI + Human hybrid support system active • Crisis resources available"
-            : "🎙️ Voice emotion detection • AI empathetic responses • Auto-escalation to therapist"
-          }
+          🎙️ Live voice conversation • Speaks in your selected language
         </p>
       </CardContent>
     </Card>

@@ -31,7 +31,8 @@ export async function streamChat(
   conversationHistory: ChatMessage[],
   callbacks: StreamCallbacks,
   sessionId?: string,
-  userId?: string
+  userId?: string,
+  language?: string
 ) {
   const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
 
@@ -48,6 +49,7 @@ export async function streamChat(
           conversationHistory,
           sessionId,
           userId,
+          language,
         }),
       });
 
