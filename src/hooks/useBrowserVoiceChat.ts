@@ -71,9 +71,15 @@ export function useBrowserVoiceChat(language: LanguageCode = "en") {
   const isSpeakingRef = useRef(false);
   const speechStartTimeRef = useRef<number>(0);
   const isListeningRef = useRef(false);
+  const currentEmotionRef = useRef<EmotionAnalysis | null>(null);
+  const languageRef = useRef(language);
+
+  // Keep refs in sync
+  useEffect(() => { languageRef.current = language; }, [language]);
 
   const isSupported = typeof window !== "undefined" &&
     ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
+  const processUserInputRef = useRef<(text: string) => void>(() => {});
 
   const processUserInput = useCallback(async (userText: string) => {
     if (!userText.trim()) return;
@@ -92,10 +98,13 @@ export function useBrowserVoiceChat(language: LanguageCode = "en") {
     conversationRef.current.push({ role: "user", content: userText });
 
     let aiResponse = "";
+    let detectedEmotion: EmotionAnalysis | null = null;
 
     try {
       await streamChat(enrichedMessage, conversationRef.current.slice(-10), {
         onEmotion: (emotion) => {
+          detectedEmotion = emotion;
+          currentEmotionRef.current = emotion;
           setCurrentEmotion(emotion);
 
           // Auto-escalate for high-risk voice input
@@ -117,18 +126,19 @@ export function useBrowserVoiceChat(language: LanguageCode = "en") {
         },
         onDone: async () => {
           conversationRef.current.push({ role: "assistant", content: aiResponse });
-          setTranscript((prev) => [...prev, { role: "ai", text: aiResponse, emotion: currentEmotion || undefined }]);
+          setTranscript((prev) => [...prev, { role: "ai", text: aiResponse, emotion: detectedEmotion || undefined }]);
 
           // Speak with empathetic pacing
           setState("speaking");
           isSpeakingRef.current = true;
           try {
-            await browserTextToSpeech(aiResponse, language);
+            await browserTextToSpeech(aiResponse, languageRef.current);
           } catch (e) {
             console.warn("Browser TTS error:", e);
           }
           isSpeakingRef.current = false;
 
+          // CRITICAL: Resume listening after speaking for continuous conversation
           if (!isStoppingRef.current && isListeningRef.current) {
             setState("listening");
             resumeListening();
@@ -151,21 +161,36 @@ export function useBrowserVoiceChat(language: LanguageCode = "en") {
         resumeListening();
       }
     }
-  }, [language, currentEmotion]);
+  }, []);
+
+  // Keep ref in sync so startCall's onresult always calls the latest version
+  useEffect(() => { processUserInputRef.current = processUserInput; }, [processUserInput]);
 
   const resumeListening = useCallback(() => {
-    if (isStoppingRef.current || !recognitionRef.current) return;
-    try {
-      recognitionRef.current.start();
-      speechStartTimeRef.current = Date.now();
-    } catch (e) {
-      // Already started or error — try again after brief delay
-      setTimeout(() => {
-        if (!isStoppingRef.current && recognitionRef.current) {
-          try { recognitionRef.current.start(); } catch { /* ignore */ }
+    if (isStoppingRef.current || !isListeningRef.current) return;
+
+    const tryStart = () => {
+      if (isStoppingRef.current || !isListeningRef.current) return;
+      try {
+        if (recognitionRef.current) {
+          recognitionRef.current.start();
+          speechStartTimeRef.current = Date.now();
         }
-      }, 300);
-    }
+      } catch (e) {
+        // If start fails (e.g. already started), retry after delay
+        setTimeout(() => {
+          if (!isStoppingRef.current && isListeningRef.current && recognitionRef.current) {
+            try {
+              recognitionRef.current.start();
+              speechStartTimeRef.current = Date.now();
+            } catch { /* ignore */ }
+          }
+        }, 500);
+      }
+    };
+
+    // Small delay to let previous recognition fully stop
+    setTimeout(tryStart, 300);
   }, []);
 
   const startCall = useCallback(async () => {
@@ -195,7 +220,7 @@ export function useBrowserVoiceChat(language: LanguageCode = "en") {
 
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.lang = RECOGNITION_LANG_MAP[language] || "en-US";
+    recognition.lang = RECOGNITION_LANG_MAP[languageRef.current] || "en-US";
     recognition.maxAlternatives = 1;
 
     recognition.onstart = () => {
@@ -224,7 +249,7 @@ export function useBrowserVoiceChat(language: LanguageCode = "en") {
         setPartialText("");
         // Stop recognition while processing to avoid overlap
         try { recognition.stop(); } catch { /* ignore */ }
-        processUserInput(finalTranscript.trim());
+        processUserInputRef.current(finalTranscript.trim());
       }
     };
 
@@ -264,7 +289,7 @@ export function useBrowserVoiceChat(language: LanguageCode = "en") {
     setState("speaking");
     isSpeakingRef.current = true;
     try {
-      await browserTextToSpeech(greeting, language);
+      await browserTextToSpeech(greeting, languageRef.current);
     } catch (e) {
       console.warn("Greeting TTS error:", e);
     }
@@ -273,7 +298,7 @@ export function useBrowserVoiceChat(language: LanguageCode = "en") {
     setState("listening");
     recognition.start();
     speechStartTimeRef.current = Date.now();
-  }, [isSupported, language, processUserInput, resumeListening]);
+  }, [isSupported, resumeListening]);
 
   const endCall = useCallback(() => {
     isStoppingRef.current = true;
