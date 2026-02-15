@@ -3,8 +3,22 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
+
+async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 3): Promise<Response> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const response = await fetch(url, options);
+    if (response.status === 429 && attempt < maxRetries) {
+      const delay = Math.min(2000 * Math.pow(2, attempt), 15000);
+      console.log(`Rate limited, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+      await new Promise(r => setTimeout(r, delay));
+      continue;
+    }
+    return response;
+  }
+  throw new Error("Max retries exceeded");
+}
 
 const SYSTEM_PROMPT = `You are EmpathyConnect, a compassionate and safe AI mental health assistant.
 
@@ -167,7 +181,7 @@ serve(async (req) => {
     // Single API call: Generate empathetic response (streaming)
     console.log("Generating response...");
 
-    const chatResponse = await fetch(gatewayUrl, {
+    const chatResponse = await fetchWithRetry(gatewayUrl, {
       method: "POST",
       headers,
       body: JSON.stringify({
