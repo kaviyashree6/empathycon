@@ -1,14 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
-import { Send, Heart, Menu, ArrowLeft, LogIn, LogOut, User } from "lucide-react";
+import { Send, Heart, Menu, ArrowLeft, LogIn, LogOut, User, Mic, MicOff, Loader2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useChat, Message } from "@/hooks/useChat";
 import { useChatHistory } from "@/hooks/useChatHistory";
-import { useVoice } from "@/hooks/useVoice";
 import { useAuth } from "@/contexts/AuthContext";
 import { LanguageCode } from "@/lib/voice-api";
-import { VoiceControls } from "@/components/chat/VoiceControls";
 import { BrowserVoiceAgent } from "@/components/chat/BrowserVoiceAgent";
 import { LanguageSelector } from "@/components/chat/LanguageSelector";
 import { ChatHistory } from "@/components/chat/ChatHistory";
@@ -16,9 +14,9 @@ import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { MessageBubble, TypingIndicator } from "@/components/chat/MessageBubble";
 import { CrisisResourcePanel } from "@/components/crisis/CrisisResourcePanel";
 import { LiveEmotionMeter } from "@/components/voice/LiveEmotionMeter";
-import { EmotionTimeline } from "@/components/timeline/EmotionTimeline";
 import { CopingStrategyCard } from "@/components/coping/CopingStrategyCard";
 import { RiskScoreIndicator } from "@/components/crisis/RiskScoreIndicator";
+import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,6 +25,20 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 
+declare global {
+  interface Window {
+    SpeechRecognition: any;
+    webkitSpeechRecognition: any;
+  }
+}
+
+const RECOGNITION_LANG_MAP: Record<string, string> = {
+  en: "en-US", "en-gb": "en-GB", "en-au": "en-AU",
+  es: "es-ES", fr: "fr-FR", de: "de-DE", pt: "pt-BR",
+  it: "it-IT", ja: "ja-JP", ko: "ko-KR", zh: "zh-CN",
+  hi: "hi-IN", ar: "ar-SA", ru: "ru-RU", nl: "nl-NL", pl: "pl-PL",
+  ta: "ta-IN",
+};
 
 const ChatPortal = () => {
   const { user, signOut } = useAuth();
@@ -38,8 +50,10 @@ const ChatPortal = () => {
   const [language, setLanguage] = useState<LanguageCode>("en");
   const [showCrisisPanel, setShowCrisisPanel] = useState(false);
   const [crisisRiskLevel, setCrisisRiskLevel] = useState<"high" | "medium">("medium");
+  const [isRecording, setIsRecording] = useState(false);
+  const [isProcessingVoice, setIsProcessingVoice] = useState(false);
 
-  const { messages, isTyping, lastEmotion, sendMessage, setMessages } = useChat();
+  const { messages, isTyping, lastEmotion, sendMessage, setMessages, setLanguage: setChatLanguage } = useChat();
   const {
     sessions,
     currentSessionId,
@@ -51,16 +65,10 @@ const ChatPortal = () => {
     deleteSession,
   } = useChatHistory();
 
-  const {
-    isRecording,
-    isProcessing,
-    isSpeaking,
-    isVoiceEnabled,
-    startRecording,
-    stopRecording,
-    speak,
-    toggleVoice,
-  } = useVoice(language);
+  // Sync language to chat hook
+  useEffect(() => {
+    setChatLanguage(language);
+  }, [language, setChatLanguage]);
 
   // Show crisis panel when high/medium risk detected
   useEffect(() => {
@@ -91,40 +99,74 @@ const ChatPortal = () => {
     }
   }, [currentSessionId, user, loadMessages, setMessages]);
 
-  // Speak AI responses when voice is enabled (but NOT during voice calls)
-  useEffect(() => {
-    if (isVoiceEnabled && !voiceCallOpen && messages.length > 0 && !isTyping) {
-      const lastMessage = messages[messages.length - 1];
-      if (lastMessage.role === "assistant" && lastMessage.content) {
-        speak(lastMessage.content);
-      }
-    }
-  }, [messages, isTyping, isVoiceEnabled, voiceCallOpen, speak]);
+  const handleSend = useCallback(async (overrideText?: string) => {
+    const text = overrideText || input.trim();
+    if (!text || isTyping) return;
 
-  const handleSend = useCallback(async () => {
-    if (!input.trim() || isTyping) return;
-
-    const userMessage = input.trim();
-    setInput("");
+    if (!overrideText) setInput("");
 
     if (currentSessionId) {
-      saveMessage(currentSessionId, { role: "user", content: userMessage });
+      saveMessage(currentSessionId, { role: "user", content: text });
     }
 
-    await sendMessage(userMessage);
+    await sendMessage(text);
   }, [input, isTyping, currentSessionId, saveMessage, sendMessage]);
 
+  // Voice input using SpeechRecognition directly
   const handleVoiceInput = useCallback(async () => {
-    const text = await stopRecording();
-    if (text) {
-      setInput(text);
-      setTimeout(() => {
-        if (text.trim()) {
-          handleSend();
-        }
-      }, 100);
+    if (isRecording) return; // already recording
+
+    const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognitionAPI) {
+      toast.error("Your browser doesn't support voice input. Please use Chrome or Edge.");
+      return;
     }
-  }, [stopRecording, handleSend]);
+
+    try {
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      toast.error("Microphone access denied. Please allow microphone access.");
+      return;
+    }
+
+    setIsRecording(true);
+
+    const recognition = new SpeechRecognitionAPI();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = RECOGNITION_LANG_MAP[language] || "en-US";
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0]?.[0]?.transcript?.trim();
+      if (transcript) {
+        setIsProcessingVoice(true);
+        setIsRecording(false);
+        // Send directly to chat
+        handleSend(transcript);
+        setIsProcessingVoice(false);
+      } else {
+        setIsRecording(false);
+        toast.info("No speech detected. Please try again.");
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      setIsRecording(false);
+      if (event.error === "no-speech") {
+        toast.info("No speech detected. Please try again.");
+      } else if (event.error === "not-allowed") {
+        toast.error("Microphone access denied.");
+      } else {
+        console.warn("Speech recognition error:", event.error);
+      }
+    };
+
+    recognition.onend = () => {
+      setIsRecording(false);
+    };
+
+    recognition.start();
+  }, [isRecording, language, handleSend]);
 
   const handleNewSession = useCallback(async () => {
     const newSessionId = await createSession(language);
@@ -213,7 +255,6 @@ const ChatPortal = () => {
 
           {/* Center controls */}
           <div className="flex items-center gap-2">
-            {/* Live Emotion Meter */}
             <LiveEmotionMeter emotion={lastEmotion} isRecording={isRecording} className="hidden md:flex" />
             <LanguageSelector value={language} onChange={setLanguage} />
             {user && (
@@ -230,10 +271,8 @@ const ChatPortal = () => {
 
           {/* Right controls */}
           <div className="flex items-center gap-2">
-            {/* Risk Score */}
             <RiskScoreIndicator emotion={lastEmotion} className="hidden sm:flex" />
 
-            {/* SOS Button */}
             <Button variant="sos" size="sm" className="gap-2 hidden sm:flex" onClick={() => {
               setCrisisRiskLevel("high");
               setShowCrisisPanel(true);
@@ -242,7 +281,6 @@ const ChatPortal = () => {
               SOS
             </Button>
 
-            {/* User menu */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon">
@@ -273,7 +311,6 @@ const ChatPortal = () => {
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {/* Crisis Resource Panel */}
           {showCrisisPanel && (
             <CrisisResourcePanel
               riskLevel={crisisRiskLevel}
@@ -281,7 +318,6 @@ const ChatPortal = () => {
             />
           )}
 
-          {/* Mobile Emotion Meter */}
           <LiveEmotionMeter emotion={lastEmotion} isRecording={isRecording} className="md:hidden" />
 
           {messages.map((message) => (
@@ -291,12 +327,12 @@ const ChatPortal = () => {
               content={message.content}
               timestamp={message.timestamp}
               emotion={message.emotion}
+              language={language}
             />
           ))}
 
           {isTyping && <TypingIndicator />}
 
-          {/* Coping Strategy Card — show after negative messages */}
           {!isTyping && lastEmotion && (lastEmotion.emotion === "negative" || lastEmotion.risk_level !== "low") && (
             <CopingStrategyCard emotion={lastEmotion} />
           )}
@@ -305,16 +341,29 @@ const ChatPortal = () => {
         {/* Input Area */}
         <div className="p-4 border-t border-border bg-card/50 backdrop-blur-sm">
           <div className="flex items-center gap-3 max-w-4xl mx-auto">
-            <VoiceControls
-              isRecording={isRecording}
-              isProcessing={isProcessing}
-              isSpeaking={isSpeaking}
-              isVoiceEnabled={isVoiceEnabled}
-              onStartRecording={startRecording}
-              onStopRecording={handleVoiceInput}
-              onToggleVoice={toggleVoice}
-              disabled={isTyping}
-            />
+            {/* Voice input button */}
+            <Button
+              variant={isRecording ? "destructive" : "outline"}
+              size="icon"
+              onClick={handleVoiceInput}
+              disabled={isTyping || isProcessingVoice}
+              className={cn(
+                "relative transition-all",
+                isRecording && "animate-pulse ring-2 ring-destructive ring-offset-2"
+              )}
+              title={isRecording ? "Listening..." : "Voice input"}
+            >
+              {isProcessingVoice ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : isRecording ? (
+                <MicOff className="w-4 h-4" />
+              ) : (
+                <Mic className="w-4 h-4" />
+              )}
+              {isRecording && (
+                <span className="absolute -top-1 -right-1 w-3 h-3 bg-destructive rounded-full animate-ping" />
+              )}
+            </Button>
 
             <Input
               value={input}
@@ -325,7 +374,7 @@ const ChatPortal = () => {
               disabled={isTyping || isRecording}
             />
 
-            <Button variant="hero" size="icon" onClick={handleSend} disabled={!input.trim() || isTyping}>
+            <Button variant="hero" size="icon" onClick={() => handleSend()} disabled={!input.trim() || isTyping}>
               <Send className="w-5 h-5" />
             </Button>
           </div>
