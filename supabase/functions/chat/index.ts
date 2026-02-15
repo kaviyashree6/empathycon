@@ -121,47 +121,33 @@ serve(async (req) => {
     };
     const gatewayUrl = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
-    // Step 1: Get emotion via tool call (non-streaming, fast)
-    console.log("Analyzing emotion...");
+    // Keyword-based emotion detection (no API call needed)
+    console.log("Detecting emotion from keywords...");
     let emotionAnalysis = { emotion: "neutral", intensity: 5, risk_level: "low", primary_feeling: "neutral" };
 
-    try {
-      const emotionResponse = await fetch(gatewayUrl, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash-lite",
-          messages: [
-            { role: "system", content: "Analyze the user's emotional state from their message. Use the report_emotion tool to report your findings." },
-            { role: "user", content: message },
-          ],
-          tools: EMOTION_TOOLS,
-          tool_choice: { type: "function", function: { name: "report_emotion" } },
-          temperature: 0.3,
-        }),
-      });
-
-      if (emotionResponse.ok) {
-        const emotionData = await emotionResponse.json();
-        const toolCall = emotionData.choices?.[0]?.message?.tool_calls?.[0];
-        if (toolCall?.function?.arguments) {
-          try {
-            emotionAnalysis = JSON.parse(toolCall.function.arguments);
-            console.log("Emotion detected via tool:", JSON.stringify(emotionAnalysis));
-          } catch { console.warn("Failed to parse emotion tool args"); }
-        }
-      } else {
-        console.warn("Emotion analysis failed:", emotionResponse.status);
-      }
-    } catch (e) {
-      console.warn("Emotion analysis error (using defaults):", e);
-    }
-
-    // Enhance with keyword detection
+    // Use keyword detection for emotion instead of a separate API call
     if (keywordResult.detected) {
-      if (emotionAnalysis.risk_level === "low") emotionAnalysis.risk_level = "medium";
+      emotionAnalysis.emotion = "negative";
+      emotionAnalysis.intensity = 7;
+      emotionAnalysis.risk_level = "medium";
+      emotionAnalysis.primary_feeling = keywordResult.keywords[0] || "distress";
       if (keywordResult.keywords.some((kw: string) => ["suicide", "kill myself", "self-harm", "end it", "die"].includes(kw))) {
         emotionAnalysis.risk_level = "high";
+        emotionAnalysis.intensity = 9;
+      }
+    } else {
+      // Simple keyword-based sentiment without an API call
+      const lower = message.toLowerCase();
+      const negativeWords = ["anxious", "anxiety", "sad", "depressed", "angry", "scared", "lonely", "stressed", "worried", "hurt", "pain", "crying", "overwhelmed", "exhausted", "frustrated", "afraid", "panic", "miserable", "terrible", "awful"];
+      const positiveWords = ["happy", "grateful", "excited", "good", "great", "wonderful", "better", "hopeful", "calm", "peaceful", "loved", "joy", "proud", "relaxed", "confident"];
+      
+      const negMatch = negativeWords.find(w => lower.includes(w));
+      const posMatch = positiveWords.find(w => lower.includes(w));
+      
+      if (negMatch) {
+        emotionAnalysis = { emotion: "negative", intensity: 6, risk_level: "low", primary_feeling: negMatch };
+      } else if (posMatch) {
+        emotionAnalysis = { emotion: "positive", intensity: 6, risk_level: "low", primary_feeling: posMatch };
       }
     }
 
@@ -169,9 +155,6 @@ serve(async (req) => {
     if (sessionId && (emotionAnalysis.risk_level === "high" || emotionAnalysis.risk_level === "medium")) {
       insertCrisisAlert(supabase, sessionId, userId || null, emotionAnalysis.risk_level, emotionAnalysis.primary_feeling, message);
     }
-
-    // Step 2: Generate empathetic response (streaming)
-    console.log("Generating response...");
 
     // Add emotion context for better response
     if (emotionAnalysis.risk_level === "high") {
@@ -181,11 +164,14 @@ serve(async (req) => {
       });
     }
 
+    // Single API call: Generate empathetic response (streaming)
+    console.log("Generating response...");
+
     const chatResponse = await fetch(gatewayUrl, {
       method: "POST",
       headers,
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: "google/gemini-2.5-flash-lite",
         messages: chatMessages,
         stream: true,
         temperature: 0.7,
