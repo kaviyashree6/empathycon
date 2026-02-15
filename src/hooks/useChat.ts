@@ -1,5 +1,6 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { streamChat, EmotionAnalysis, ChatMessage } from "@/lib/chat-api";
+import { LanguageCode } from "@/lib/voice-api";
 import { toast } from "sonner";
 
 export type Message = {
@@ -22,11 +23,15 @@ export function useChat() {
   ]);
   const [isTyping, setIsTyping] = useState(false);
   const [lastEmotion, setLastEmotion] = useState<EmotionAnalysis | null>(null);
+  const languageRef = useRef<LanguageCode>("en");
+
+  const setLanguage = useCallback((lang: LanguageCode) => {
+    languageRef.current = lang;
+  }, []);
 
   const sendMessage = useCallback(async (content: string) => {
     if (!content.trim() || isTyping) return;
 
-    // Add user message
     const userMessage: Message = {
       id: Date.now().toString(),
       role: "user",
@@ -37,13 +42,9 @@ export function useChat() {
     setMessages((prev) => [...prev, userMessage]);
     setIsTyping(true);
 
-    // Build conversation history for context
     const conversationHistory: ChatMessage[] = messages
-      .slice(-10) // Keep last 10 messages for context
-      .map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
+      .slice(-10)
+      .map((m) => ({ role: m.role, content: m.content }));
 
     let assistantContent = "";
     let emotionData: EmotionAnalysis | undefined;
@@ -53,14 +54,12 @@ export function useChat() {
       setMessages((prev) => {
         const last = prev[prev.length - 1];
         if (last?.role === "assistant" && last.id.startsWith("ai-")) {
-          // Update existing assistant message
           return prev.map((m, i) =>
             i === prev.length - 1
               ? { ...m, content: assistantContent, emotion: emotionData }
               : m
           );
         }
-        // Create new assistant message
         return [
           ...prev,
           {
@@ -77,11 +76,8 @@ export function useChat() {
     try {
       await streamChat(content, conversationHistory, {
         onEmotion: (emotion) => {
-          console.log("Emotion detected:", emotion);
           emotionData = emotion;
           setLastEmotion(emotion);
-          
-          // Show toast for high-risk messages
           if (emotion.risk_level === "high") {
             toast.warning(
               "If you're in crisis, please reach out to a helpline. You're not alone. ❤️",
@@ -99,17 +95,15 @@ export function useChat() {
           console.error("Chat error:", error);
           toast.error(error);
           setIsTyping(false);
-          
-          // Add error message
           setMessages((prev) => {
             const last = prev[prev.length - 1];
             if (last?.role === "assistant" && last.id.startsWith("ai-")) {
-              return prev.slice(0, -1); // Remove empty assistant message
+              return prev.slice(0, -1);
             }
             return prev;
           });
         },
-      });
+      }, undefined, undefined, languageRef.current);
     } catch (error) {
       console.error("Send message error:", error);
       toast.error("Failed to send message. Please try again.");
@@ -123,5 +117,6 @@ export function useChat() {
     lastEmotion,
     sendMessage,
     setMessages,
+    setLanguage,
   };
 }
