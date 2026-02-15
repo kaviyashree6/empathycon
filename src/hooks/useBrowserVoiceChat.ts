@@ -69,10 +69,12 @@ export function useBrowserVoiceChat(language: LanguageCode = "en") {
   const conversationRef = useRef<ChatMessage[]>([]);
   const isStoppingRef = useRef(false);
   const isSpeakingRef = useRef(false);
+  const isProcessingRef = useRef(false);
   const speechStartTimeRef = useRef<number>(0);
   const isListeningRef = useRef(false);
   const currentEmotionRef = useRef<EmotionAnalysis | null>(null);
   const languageRef = useRef(language);
+  const lastSendTimeRef = useRef<number>(0);
 
   // Keep refs in sync
   useEffect(() => { languageRef.current = language; }, [language]);
@@ -82,8 +84,16 @@ export function useBrowserVoiceChat(language: LanguageCode = "en") {
   const processUserInputRef = useRef<(text: string) => void>(() => {});
 
   const processUserInput = useCallback(async (userText: string) => {
-    if (!userText.trim()) return;
-
+    if (!userText.trim() || isProcessingRef.current) return;
+    
+    // Debounce: minimum 3 seconds between messages
+    const now = Date.now();
+    if (now - lastSendTimeRef.current < 3000) {
+      console.log("Voice chat debounced, too soon since last message");
+      return;
+    }
+    lastSendTimeRef.current = now;
+    isProcessingRef.current = true;
     const speechDuration = Date.now() - speechStartTimeRef.current;
     const speechPatterns = analyzeSpeechPatterns(userText, speechDuration);
 
@@ -137,6 +147,7 @@ export function useBrowserVoiceChat(language: LanguageCode = "en") {
             console.warn("Browser TTS error:", e);
           }
           isSpeakingRef.current = false;
+          isProcessingRef.current = false;
 
           // CRITICAL: Resume listening after speaking for continuous conversation
           if (!isStoppingRef.current && isListeningRef.current) {
@@ -147,6 +158,7 @@ export function useBrowserVoiceChat(language: LanguageCode = "en") {
         onError: (error) => {
           console.error("Chat error:", error);
           toast.error(error);
+          isProcessingRef.current = false;
           if (!isStoppingRef.current && isListeningRef.current) {
             setState("listening");
             resumeListening();
@@ -156,6 +168,7 @@ export function useBrowserVoiceChat(language: LanguageCode = "en") {
     } catch (error) {
       console.error("Voice chat error:", error);
       toast.error("Failed to get AI response. Please try again.");
+      isProcessingRef.current = false;
       if (!isStoppingRef.current && isListeningRef.current) {
         setState("listening");
         resumeListening();

@@ -19,8 +19,8 @@ export type StreamCallbacks = {
   onError?: (error: string) => void;
 };
 
-const MAX_RETRIES = 2;
-const RETRY_DELAY_MS = 3000;
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 5000;
 
 async function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
