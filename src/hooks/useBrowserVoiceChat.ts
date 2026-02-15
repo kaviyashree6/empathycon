@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { browserTextToSpeech, stopBrowserSpeech, LanguageCode } from "@/lib/voice-api";
-import { streamChat, ChatMessage, EmotionAnalysis } from "@/lib/chat-api";
+import { streamChat, ChatMessage } from "@/lib/chat-api";
 import { toast } from "sonner";
 
 declare global {
@@ -15,46 +15,14 @@ const RECOGNITION_LANG_MAP: Record<string, string> = {
   es: "es-ES", fr: "fr-FR", de: "de-DE", pt: "pt-BR",
   it: "it-IT", ja: "ja-JP", ko: "ko-KR", zh: "zh-CN",
   hi: "hi-IN", ar: "ar-SA", ru: "ru-RU", nl: "nl-NL", pl: "pl-PL",
+  ta: "ta-IN",
 };
-
-// Speech pattern analysis for tone-based emotion detection
-function analyzeSpeechPatterns(transcript: string, speechDurationMs: number): {
-  pace: "slow" | "normal" | "fast";
-  urgency: "low" | "medium" | "high";
-  emotionalCues: string[];
-} {
-  const wordCount = transcript.split(/\s+/).filter(Boolean).length;
-  const wordsPerMinute = speechDurationMs > 0 ? (wordCount / speechDurationMs) * 60000 : 120;
-
-  const pace = wordsPerMinute < 80 ? "slow" : wordsPerMinute > 180 ? "fast" : "normal";
-
-  // Detect urgency from speech patterns
-  const urgencyWords = ["please", "help", "can't", "need", "now", "stop", "hurry", "scared", "afraid"];
-  const crisisWords = ["hopeless", "suicide", "kill", "die", "end it", "self-harm", "alone", "worthless", "burden"];
-  const lowerText = transcript.toLowerCase();
-
-  const foundUrgency = urgencyWords.filter(w => lowerText.includes(w));
-  const foundCrisis = crisisWords.filter(w => lowerText.includes(w));
-
-  const emotionalCues: string[] = [];
-  if (pace === "fast") emotionalCues.push("rapid speech (possible anxiety)");
-  if (pace === "slow") emotionalCues.push("slow speech (possible sadness/fatigue)");
-  if (foundUrgency.length > 0) emotionalCues.push(`urgency cues: ${foundUrgency.join(", ")}`);
-  if (foundCrisis.length > 0) emotionalCues.push(`crisis indicators: ${foundCrisis.join(", ")}`);
-  if (transcript.includes("...") || transcript.split(/[.!?]/).length > 5) emotionalCues.push("fragmented speech");
-
-  const urgency = foundCrisis.length > 0 ? "high" : foundUrgency.length >= 2 || pace === "fast" ? "medium" : "low";
-
-  return { pace, urgency, emotionalCues };
-}
 
 type VoiceChatState = "idle" | "listening" | "thinking" | "speaking";
 
 type TranscriptEntry = {
   role: "user" | "ai";
   text: string;
-  emotion?: EmotionAnalysis;
-  speechPatterns?: ReturnType<typeof analyzeSpeechPatterns>;
 };
 
 export function useBrowserVoiceChat(language: LanguageCode = "en") {
@@ -62,31 +30,50 @@ export function useBrowserVoiceChat(language: LanguageCode = "en") {
   const [isConnected, setIsConnected] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [partialText, setPartialText] = useState("");
-  const [currentEmotion, setCurrentEmotion] = useState<EmotionAnalysis | null>(null);
-  const [isEscalated, setIsEscalated] = useState(false);
 
   const recognitionRef = useRef<any>(null);
   const conversationRef = useRef<ChatMessage[]>([]);
   const isStoppingRef = useRef(false);
   const isSpeakingRef = useRef(false);
   const isProcessingRef = useRef(false);
-  const speechStartTimeRef = useRef<number>(0);
   const isListeningRef = useRef(false);
-  const currentEmotionRef = useRef<EmotionAnalysis | null>(null);
   const languageRef = useRef(language);
   const lastSendTimeRef = useRef<number>(0);
 
-  // Keep refs in sync
-  useEffect(() => { languageRef.current = language; }, [language]);
-
   const isSupported = typeof window !== "undefined" &&
     ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
+
+  useEffect(() => { languageRef.current = language; }, [language]);
+
   const processUserInputRef = useRef<(text: string) => void>(() => {});
+
+  const resumeListening = useCallback(() => {
+    if (isStoppingRef.current || !isListeningRef.current) return;
+
+    const tryStart = () => {
+      if (isStoppingRef.current || !isListeningRef.current) return;
+      try {
+        if (recognitionRef.current) {
+          recognitionRef.current.lang = RECOGNITION_LANG_MAP[languageRef.current] || "en-US";
+          recognitionRef.current.start();
+        }
+      } catch (e) {
+        setTimeout(() => {
+          if (!isStoppingRef.current && isListeningRef.current && recognitionRef.current) {
+            try {
+              recognitionRef.current.start();
+            } catch { }
+          }
+        }, 500);
+      }
+    };
+
+    setTimeout(tryStart, 300);
+  }, []);
 
   const processUserInput = useCallback(async (userText: string) => {
     if (!userText.trim() || isProcessingRef.current) return;
-    
-    // Debounce: minimum 3 seconds between messages
+
     const now = Date.now();
     if (now - lastSendTimeRef.current < 3000) {
       console.log("Voice chat debounced, too soon since last message");
@@ -94,51 +81,23 @@ export function useBrowserVoiceChat(language: LanguageCode = "en") {
     }
     lastSendTimeRef.current = now;
     isProcessingRef.current = true;
-    const speechDuration = Date.now() - speechStartTimeRef.current;
-    const speechPatterns = analyzeSpeechPatterns(userText, speechDuration);
 
     setState("thinking");
-    setTranscript((prev) => [...prev, { role: "user", text: userText, speechPatterns }]);
-
-    // Enrich message with speech pattern context for better AI emotion understanding
-    const enrichedMessage = speechPatterns.emotionalCues.length > 0
-      ? `${userText}\n\n[Voice analysis: ${speechPatterns.emotionalCues.join("; ")}. Speech pace: ${speechPatterns.pace}]`
-      : userText;
+    setTranscript((prev) => [...prev, { role: "user", text: userText }]);
 
     conversationRef.current.push({ role: "user", content: userText });
 
     let aiResponse = "";
-    let detectedEmotion: EmotionAnalysis | null = null;
 
     try {
-      await streamChat(enrichedMessage, conversationRef.current.slice(-10), {
-        onEmotion: (emotion) => {
-          detectedEmotion = emotion;
-          currentEmotionRef.current = emotion;
-          setCurrentEmotion(emotion);
-
-          // Auto-escalate for high-risk voice input
-          if (emotion.risk_level === "high" || speechPatterns.urgency === "high") {
-            setIsEscalated(true);
-            toast.warning(
-              "I hear you're going through something very difficult. I'm connecting you with additional support. You're not alone. ❤️",
-              { duration: 15000 }
-            );
-          } else if (emotion.risk_level === "medium" && speechPatterns.urgency === "medium") {
-            toast.info(
-              "I'm paying close attention to how you're feeling. I'm here for you. 💙",
-              { duration: 8000 }
-            );
-          }
-        },
+      await streamChat(userText, conversationRef.current.slice(-10), {
         onDelta: (delta) => {
           aiResponse += delta;
         },
         onDone: async () => {
           conversationRef.current.push({ role: "assistant", content: aiResponse });
-          setTranscript((prev) => [...prev, { role: "ai", text: aiResponse, emotion: detectedEmotion || undefined }]);
+          setTranscript((prev) => [...prev, { role: "ai", text: aiResponse }]);
 
-          // Speak with empathetic pacing
           setState("speaking");
           isSpeakingRef.current = true;
           try {
@@ -149,7 +108,6 @@ export function useBrowserVoiceChat(language: LanguageCode = "en") {
           isSpeakingRef.current = false;
           isProcessingRef.current = false;
 
-          // CRITICAL: Resume listening after speaking for continuous conversation
           if (!isStoppingRef.current && isListeningRef.current) {
             setState("listening");
             resumeListening();
@@ -164,7 +122,7 @@ export function useBrowserVoiceChat(language: LanguageCode = "en") {
             resumeListening();
           }
         },
-      });
+      }, undefined, undefined, languageRef.current);
     } catch (error) {
       console.error("Voice chat error:", error);
       toast.error("Failed to get AI response. Please try again.");
@@ -174,37 +132,9 @@ export function useBrowserVoiceChat(language: LanguageCode = "en") {
         resumeListening();
       }
     }
-  }, []);
+  }, [resumeListening]);
 
-  // Keep ref in sync so startCall's onresult always calls the latest version
   useEffect(() => { processUserInputRef.current = processUserInput; }, [processUserInput]);
-
-  const resumeListening = useCallback(() => {
-    if (isStoppingRef.current || !isListeningRef.current) return;
-
-    const tryStart = () => {
-      if (isStoppingRef.current || !isListeningRef.current) return;
-      try {
-        if (recognitionRef.current) {
-          recognitionRef.current.start();
-          speechStartTimeRef.current = Date.now();
-        }
-      } catch (e) {
-        // If start fails (e.g. already started), retry after delay
-        setTimeout(() => {
-          if (!isStoppingRef.current && isListeningRef.current && recognitionRef.current) {
-            try {
-              recognitionRef.current.start();
-              speechStartTimeRef.current = Date.now();
-            } catch { /* ignore */ }
-          }
-        }, 500);
-      }
-    };
-
-    // Small delay to let previous recognition fully stop
-    setTimeout(tryStart, 300);
-  }, []);
 
   const startCall = useCallback(async () => {
     if (!isSupported) {
@@ -212,7 +142,6 @@ export function useBrowserVoiceChat(language: LanguageCode = "en") {
       return;
     }
 
-    // Request microphone permission first
     try {
       await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
@@ -222,11 +151,10 @@ export function useBrowserVoiceChat(language: LanguageCode = "en") {
 
     isStoppingRef.current = false;
     isListeningRef.current = true;
+    isProcessingRef.current = false;
     conversationRef.current = [];
     setTranscript([]);
     setPartialText("");
-    setCurrentEmotion(null);
-    setIsEscalated(false);
 
     const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
     const recognition = new SpeechRecognitionAPI();
@@ -238,7 +166,6 @@ export function useBrowserVoiceChat(language: LanguageCode = "en") {
 
     recognition.onstart = () => {
       setState("listening");
-      speechStartTimeRef.current = Date.now();
     };
 
     recognition.onresult = (event: any) => {
@@ -260,8 +187,7 @@ export function useBrowserVoiceChat(language: LanguageCode = "en") {
 
       if (finalTranscript.trim()) {
         setPartialText("");
-        // Stop recognition while processing to avoid overlap
-        try { recognition.stop(); } catch { /* ignore */ }
+        try { recognition.stop(); } catch { }
         processUserInputRef.current(finalTranscript.trim());
       }
     };
@@ -269,24 +195,21 @@ export function useBrowserVoiceChat(language: LanguageCode = "en") {
     recognition.onerror = (event: any) => {
       console.warn("Speech recognition error:", event.error);
       if (event.error === "no-speech") {
-        // Normal timeout, will auto-restart via onend
       } else if (event.error === "not-allowed") {
         toast.error("Microphone access denied. Please allow microphone access.");
         isListeningRef.current = false;
         setIsConnected(false);
         setState("idle");
       } else if (event.error === "aborted") {
-        // Intentional abort, ignore
       } else {
         console.warn("Speech error:", event.error);
       }
     };
 
     recognition.onend = () => {
-      // Auto-restart if still in call and not speaking/processing
-      if (!isStoppingRef.current && isListeningRef.current && !isSpeakingRef.current) {
+      if (!isStoppingRef.current && isListeningRef.current && !isSpeakingRef.current && !isProcessingRef.current) {
         setTimeout(() => {
-          if (!isStoppingRef.current && isListeningRef.current && !isSpeakingRef.current) {
+          if (!isStoppingRef.current && isListeningRef.current && !isSpeakingRef.current && !isProcessingRef.current) {
             resumeListening();
           }
         }, 200);
@@ -296,8 +219,27 @@ export function useBrowserVoiceChat(language: LanguageCode = "en") {
     recognitionRef.current = recognition;
     setIsConnected(true);
 
-    // Empathetic greeting
-    const greeting = "Hi! I'm listening and I'm here for you. How are you feeling today?";
+    const greetings: Record<string, string> = {
+      en: "Hi! I'm listening. How are you feeling today?",
+      "en-gb": "Hi! I'm listening. How are you feeling today?",
+      "en-au": "Hi! I'm listening. How are you feeling today?",
+      es: "¡Hola! Estoy escuchando. ¿Cómo te sientes hoy?",
+      fr: "Bonjour ! Je vous écoute. Comment vous sentez-vous aujourd'hui ?",
+      de: "Hallo! Ich höre zu. Wie fühlen Sie sich heute?",
+      pt: "Olá! Estou ouvindo. Como você está se sentindo hoje?",
+      it: "Ciao! Ti ascolto. Come ti senti oggi?",
+      ja: "こんにちは！聞いていますよ。今日の調子はどうですか？",
+      ko: "안녕하세요! 듣고 있어요. 오늘 기분이 어떠세요?",
+      zh: "你好！我在听。你今天感觉怎么样？",
+      hi: "नमस्ते! मैं सुन रहा हूँ। आज आप कैसा महसूस कर रहे हैं?",
+      ar: "مرحبًا! أنا أستمع. كيف تشعر اليوم؟",
+      ru: "Привет! Я слушаю. Как вы себя чувствуете сегодня?",
+      nl: "Hallo! Ik luister. Hoe voel je je vandaag?",
+      pl: "Cześć! Słucham. Jak się dziś czujesz?",
+      ta: "வணக்கம்! நான் கேட்டுக்கொண்டிருக்கிறேன். இன்று நீங்கள் எப்படி உணர்கிறீர்கள்?",
+    };
+    const greeting = greetings[languageRef.current] || greetings.en;
+
     setTranscript([{ role: "ai", text: greeting }]);
     setState("speaking");
     isSpeakingRef.current = true;
@@ -310,16 +252,16 @@ export function useBrowserVoiceChat(language: LanguageCode = "en") {
 
     setState("listening");
     recognition.start();
-    speechStartTimeRef.current = Date.now();
   }, [isSupported, resumeListening]);
 
   const endCall = useCallback(() => {
     isStoppingRef.current = true;
     isListeningRef.current = false;
+    isProcessingRef.current = false;
     stopBrowserSpeech();
 
     if (recognitionRef.current) {
-      try { recognitionRef.current.stop(); } catch { /* ignore */ }
+      try { recognitionRef.current.stop(); } catch { }
       recognitionRef.current = null;
     }
 
@@ -334,7 +276,7 @@ export function useBrowserVoiceChat(language: LanguageCode = "en") {
       isListeningRef.current = false;
       stopBrowserSpeech();
       if (recognitionRef.current) {
-        try { recognitionRef.current.stop(); } catch { /* ignore */ }
+        try { recognitionRef.current.stop(); } catch { }
         recognitionRef.current = null;
       }
     };
@@ -346,8 +288,6 @@ export function useBrowserVoiceChat(language: LanguageCode = "en") {
     isSupported,
     transcript,
     partialText,
-    currentEmotion,
-    isEscalated,
     startCall,
     endCall,
   };

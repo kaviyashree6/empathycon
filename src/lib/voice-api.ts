@@ -17,6 +17,7 @@ export const SUPPORTED_LANGUAGES = [
   { code: "ru", label: "Русский", accent: "" },
   { code: "nl", label: "Nederlands", accent: "" },
   { code: "pl", label: "Polski", accent: "" },
+  { code: "ta", label: "தமிழ்", accent: "" },
 ] as const;
 
 export type LanguageCode = (typeof SUPPORTED_LANGUAGES)[number]["code"];
@@ -39,6 +40,7 @@ const BROWSER_LANG_MAP: Record<string, string> = {
   ru: "ru-RU",
   nl: "nl-NL",
   pl: "pl-PL",
+  ta: "ta-IN",
 };
 
 /**
@@ -59,15 +61,20 @@ export function browserTextToSpeech(
     window.speechSynthesis.cancel();
 
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = BROWSER_LANG_MAP[language] || "en-US";
+    const targetLang = BROWSER_LANG_MAP[language] || "en-US";
+    utterance.lang = targetLang;
     utterance.rate = 0.95;
     utterance.pitch = 1.0;
 
-    // Try to find a matching voice
+    // Try to find the best matching voice for the target language
     const voices = window.speechSynthesis.getVoices();
-    const matchingVoice = voices.find((v) =>
-      v.lang.startsWith(utterance.lang.split("-")[0])
-    );
+    // First try exact match
+    let matchingVoice = voices.find((v) => v.lang === targetLang);
+    // Then try prefix match (e.g. "ta" matches "ta-IN")
+    if (!matchingVoice) {
+      const langPrefix = targetLang.split("-")[0];
+      matchingVoice = voices.find((v) => v.lang.startsWith(langPrefix));
+    }
     if (matchingVoice) {
       utterance.voice = matchingVoice;
     }
